@@ -2,12 +2,12 @@ package com.guberdev.places.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.guberdev.places.data.LocalRecommendationEngine
 import com.guberdev.places.data.api.GooglePlacesApi
 import com.guberdev.places.data.api.GpCircle
 import com.guberdev.places.data.api.GpLatLng
 import com.guberdev.places.data.api.GpLocationBias
 import com.guberdev.places.data.api.GpTextSearchRequest
-import com.guberdev.places.data.api.PlacesApi
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
@@ -30,12 +30,8 @@ sealed class PlacesUiState {
 }
 
 class PlacesViewModel : ViewModel() {
-    private var api = PlacesApi.create()
+    private val engine = LocalRecommendationEngine()
     private val googlePlacesApi = GooglePlacesApi.create()
-
-    fun updateServerUrl(url: String) {
-        api = PlacesApi.create(url)
-    }
 
     private val _uiState = MutableStateFlow<PlacesUiState>(PlacesUiState.Initial)
     val uiState: StateFlow<PlacesUiState> = _uiState.asStateFlow()
@@ -89,9 +85,9 @@ class PlacesViewModel : ViewModel() {
                     forceRefresh = forceRefresh,
                     userApiKeys = userApiKeys
                 )
-                Log.d("PlacesVM", "getRecommendations sending request: $request")
-                val response = api.getRecommendations(request)
-                Log.d("PlacesVM", "getRecommendations OK in ${System.currentTimeMillis() - startTime}ms — ${response.recommendations.size} results")
+                Log.d("PlacesVM", "engine.recommend sending request: $request")
+                val response = engine.recommend(request, userApiKeys ?: emptyMap())
+                Log.d("PlacesVM", "engine.recommend OK in ${System.currentTimeMillis() - startTime}ms — ${response.recommendations.size} results")
 
                 val googleApiKey = userApiKeys?.get("GooglePlaces")?.takeIf { it.isNotBlank() }
                 val enriched = if (googleApiKey != null) {
@@ -168,6 +164,6 @@ class PlacesViewModel : ViewModel() {
     }
 
     suspend fun getModels(provider: String, apiKey: String?, endpoint: String?): ProviderModelsResponse {
-        return api.getProviderModels(provider, apiKey, endpoint)
+        return engine.getModels(provider, apiKey, endpoint)
     }
 }
