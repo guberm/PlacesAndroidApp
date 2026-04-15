@@ -96,9 +96,29 @@ class PlacesViewModel : ViewModel() {
                     response
                 }
 
-                Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms")
+                // Hard-filter: remove places whose coordinates fall outside the requested radius.
+                // The backend (AI) may return results beyond the radius, so we enforce it client-side.
+                val filtered = if (radiusMeters > 0) {
+                    val distResults = FloatArray(1)
+                    val within = enriched.recommendations.filter { place ->
+                        if (place.latitude != null && place.longitude != null) {
+                            android.location.Location.distanceBetween(
+                                enriched.latitude, enriched.longitude,
+                                place.latitude, place.longitude,
+                                distResults
+                            )
+                            val distM = distResults[0]
+                            val keep = distM <= radiusMeters * 1.1f // 10% tolerance for geocoding imprecision
+                            if (!keep) Log.d("PlacesVM", "Filtered out '${place.name}' at ${distM.toInt()}m (radius=${radiusMeters}m)")
+                            keep
+                        } else true // no coords — keep it
+                    }
+                    enriched.copy(recommendations = within)
+                } else enriched
+
+                Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
                 slowWarningJob.cancel()
-                _uiState.value = PlacesUiState.Success(enriched)
+                _uiState.value = PlacesUiState.Success(filtered)
             } catch (e: Exception) {
                 Log.e("PlacesVM", "searchPlaces ERROR: ${e.javaClass.simpleName} — ${e.message}", e)
                 slowWarningJob.cancel()

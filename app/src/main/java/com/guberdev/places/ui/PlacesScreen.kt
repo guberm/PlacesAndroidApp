@@ -97,6 +97,40 @@ private fun clearLogs() {
     catch (e: Exception) { Log.e("PlacesVM", "clearLogs failed: ${e.message}", e) }
 }
 
+// ── Settings import / export ──────────────────────────────────────────
+
+private fun exportKeysToJson(context: Context, keys: Map<String, String>) {
+    try {
+        val json = org.json.JSONObject()
+        keys.forEach { (k, v) -> if (v.isNotBlank()) json.put(k, v) }
+        val fileName = "places-settings-${System.currentTimeMillis()}.json"
+        val file = java.io.File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), fileName)
+        file.writeText(json.toString(2))
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_SUBJECT, "PlacesApp settings")
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Export settings"))
+    } catch (e: Exception) {
+        Log.e("PlacesVM", "exportKeysToJson failed: ${e.message}", e)
+    }
+}
+
+private fun parseKeysFromJson(context: Context, uri: Uri): Map<String, String>? {
+    return try {
+        val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
+            ?: return null
+        val json = org.json.JSONObject(text)
+        buildMap { json.keys().forEach { key -> put(key, json.getString(key)) } }
+    } catch (e: Exception) {
+        Log.e("PlacesVM", "parseKeysFromJson failed: ${e.message}", e)
+        null
+    }
+}
+
 class ThemeColors(isDark: Boolean) {
     val bgGradient = if (isDark) listOf(Color(0xFF0F172A), Color(0xFF1E293B)) else listOf(Color(0xFFF8FAFC), Color(0xFFE2E8F0))
     val textPrime = if (isDark) Color.White else Color(0xFF0F172A)
@@ -295,6 +329,15 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys: Map<String, String>, onDismiss: () -> Unit, onSave: (Map<String, String>) -> Unit) {
     var localKeys by remember { mutableStateOf(initialKeys.toMap()) }
     val providers = listOf("OpenRouter", "OpenAI", "Anthropic", "Gemini", "AzureOpenAI")
+    val ctx = LocalContext.current
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            parseKeysFromJson(ctx, it)?.let { imported -> localKeys = localKeys + imported }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -331,8 +374,30 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val ctx = LocalContext.current
                 var logsMenuExpanded by remember { mutableStateOf(false) }
+                var keysMenuExpanded by remember { mutableStateOf(false) }
                 var showClearedToast by remember { mutableStateOf(false) }
 
+                // Keys dropdown
+                Box {
+                    TextButton(onClick = { keysMenuExpanded = true }) {
+                        Text("Keys ▾", color = colors.textSec, fontSize = 12.sp)
+                    }
+                    DropdownMenu(
+                        expanded = keysMenuExpanded,
+                        onDismissRequest = { keysMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Export to JSON", color = colors.textPrime, fontSize = 13.sp) },
+                            onClick = { keysMenuExpanded = false; exportKeysToJson(ctx, localKeys) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Import from JSON", color = colors.textPrime, fontSize = 13.sp) },
+                            onClick = { keysMenuExpanded = false; importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+                        )
+                    }
+                }
+
+                // Logs dropdown
                 Box {
                     TextButton(onClick = { logsMenuExpanded = true }) {
                         Text("Logs ▾", color = colors.textSec, fontSize = 12.sp)
