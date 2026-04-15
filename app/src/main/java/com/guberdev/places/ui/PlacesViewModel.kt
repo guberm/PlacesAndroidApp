@@ -13,6 +13,7 @@ import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class PlacesUiState {
     object Initial : PlacesUiState()
@@ -130,8 +132,12 @@ class PlacesViewModel : ViewModel() {
                 } else enriched
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
+
+                // Geocode place addresses to get accurate coordinates for distance display
+                val geocoded = geocodeAddresses(filtered)
+
                 slowWarningJob.cancel()
-                _uiState.value = PlacesUiState.Success(filtered)
+                _uiState.value = PlacesUiState.Success(geocoded)
             } catch (e: Exception) {
                 Log.e("PlacesVM", "searchPlaces ERROR: ${e.javaClass.simpleName} — ${e.message}", e)
                 slowWarningJob.cancel()
@@ -139,6 +145,42 @@ class PlacesViewModel : ViewModel() {
             }
         }
     }
+
+    private suspend fun geocodeAddresses(
+        response: RecommendationResponse
+    ): RecommendationResponse = coroutineScope {
+        val updated = response.recommendations.map { place ->
+            async {
+                try {
+                    // If the place already has coordinates from AI, verify them by reverse-geocoding
+                    // then re-geocode the address to get accurate OSM coords
+                    if (!place.address.isNullOrBlank()) {
+                        // Build a precise query: "Place Name, address" for best OSM match
+                        val query = "${place.name}, ${place.address}"
+                        val coords = engine.geocode(query) ?: engine.geocode(place.address)
+                        if (coords != null) {
+                            Log.d("PlacesVM", "OSM geocoded '${place.name}' → ${coords.first},${coords.second}")
+                            place.copy(latitude = coords.first, longitude = coords.second)
+                        } else place
+                    } else if (place.latitude != null && place.longitude != null) {
+                        // No address string — reverse-geocode coordinates to get a real address
+                        val addr = engine.reverseGeocodeAddress(place.latitude, place.longitude)
+                        if (addr != null) {
+                            Log.d("PlacesVM", "OSM reverse-geocoded '${place.name}' → $addr")
+                            place.copy(address = addr)
+                        } else place
+                    } else place
+                } catch (e: Exception) {
+                    Log.w("PlacesVM", "OSM geocode FAILED for '${place.name}': ${e.message}")
+                    place
+                }
+            }
+        }.awaitAll()
+        response.copy(recommendations = updated)
+    }
+
+    suspend fun reverseGeocode(lat: Double, lng: Double): String? =
+        withContext(Dispatchers.IO) { engine.reverseGeocode(lat, lng) }
 
     private suspend fun enrichWithGoogleRatings(
         response: RecommendationResponse,

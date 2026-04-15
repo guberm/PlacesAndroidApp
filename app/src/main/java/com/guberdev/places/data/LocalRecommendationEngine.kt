@@ -105,7 +105,7 @@ class LocalRecommendationEngine {
 
     // ── Geocoding ─────────────────────────────────────────────────────────────
 
-    private fun geocode(address: String): Pair<Double, Double>? {
+    internal fun geocode(address: String): Pair<Double, Double>? {
         return try {
             val encoded = URLEncoder.encode(address, "UTF-8")
             val req = Request.Builder()
@@ -127,7 +127,8 @@ class LocalRecommendationEngine {
 
     // ── Reverse geocoding ─────────────────────────────────────────────────────
 
-    private fun reverseGeocode(lat: Double, lng: Double): String? {
+    /** Returns "City, State, Country" — used for the AI prompt location context. */
+    internal fun reverseGeocode(lat: Double, lng: Double): String? {
         return try {
             val req = Request.Builder()
                 .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=10")
@@ -145,6 +146,31 @@ class LocalRecommendationEngine {
             listOfNotNull(city, state, country).joinToString(", ").takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.e("LocalEngine", "Reverse geocoding failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Returns full street address — used to fill in missing address on a place card. */
+    internal fun reverseGeocodeAddress(lat: Double, lng: Double): String? {
+        return try {
+            val req = Request.Builder()
+                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=18")
+                .header("User-Agent", "PlacesApp/1.0 (Android)")
+                .build()
+            val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
+            val obj = JSONObject(body)
+            // Use the pre-formatted display_name with road + house number + city
+            val addr = obj.optJSONObject("address") ?: return obj.optString("display_name").takeIf { it.isNotBlank() }
+            val house = addr.optString("house_number").takeIf { it.isNotBlank() }
+            val road = addr.optString("road").takeIf { it.isNotBlank() }
+            val city = addr.optString("city").takeIf { it.isNotBlank() }
+                ?: addr.optString("town").takeIf { it.isNotBlank() }
+                ?: addr.optString("village").takeIf { it.isNotBlank() }
+            val state = addr.optString("state").takeIf { it.isNotBlank() }
+            val street = listOfNotNull(house, road).joinToString(" ").takeIf { it.isNotBlank() }
+            listOfNotNull(street, city, state).joinToString(", ").takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.e("LocalEngine", "reverseGeocodeAddress failed: ${e.message}")
             null
         }
     }

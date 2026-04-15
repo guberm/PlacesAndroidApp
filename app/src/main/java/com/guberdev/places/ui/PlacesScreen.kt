@@ -158,6 +158,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
     var userLat by remember { mutableStateOf<Double?>(null) }
     var userLng by remember { mutableStateOf<Double?>(null) }
+    val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
     var userApiKeys by remember {
@@ -176,16 +177,30 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            try { fusedLocationClient.lastLocation.addOnSuccessListener { location -> 
-                if (location != null) { userLat = location.latitude; userLng = location.longitude; searchQuery = "Current Location" }
+            try { fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    userLat = location.latitude; userLng = location.longitude
+                    searchQuery = "Locating…"
+                    scope.launch {
+                        searchQuery = viewModel.reverseGeocode(location.latitude, location.longitude)
+                            ?: "${location.latitude}, ${location.longitude}"
+                    }
+                }
             }} catch (e: Exception) {}
         }
     }
 
     fun fetchCurrentLocation() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            try { fusedLocationClient.lastLocation.addOnSuccessListener { location -> 
-                if (location != null) { userLat = location.latitude; userLng = location.longitude; searchQuery = "Current Location" }
+            try { fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    userLat = location.latitude; userLng = location.longitude
+                    searchQuery = "Locating…"
+                    scope.launch {
+                        searchQuery = viewModel.reverseGeocode(location.latitude, location.longitude)
+                            ?: "${location.latitude}, ${location.longitude}"
+                    }
+                }
             }} catch (e: Exception) {}
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
@@ -663,11 +678,19 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                     Button(
                         onClick = {
                             showDialog = false
-                            val lat = place.latitude ?: 0.0
-                            val lng = place.longitude ?: 0.0
-                            val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$lat,$lng")).apply { setPackage("com.google.android.apps.maps") }
-                            try { context.startActivity(navIntent) } catch (e: Exception) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(place.name)})")))
+                            val navAddress = place.address?.takeIf { it.isNotBlank() }
+                            if (navAddress != null) {
+                                val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=${Uri.encode(navAddress)}")).apply { setPackage("com.google.android.apps.maps") }
+                                try { context.startActivity(navIntent) } catch (e: Exception) {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(navAddress)}")))
+                                }
+                            } else {
+                                val lat = place.latitude ?: 0.0
+                                val lng = place.longitude ?: 0.0
+                                val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$lat,$lng")).apply { setPackage("com.google.android.apps.maps") }
+                                try { context.startActivity(navIntent) } catch (e: Exception) {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(place.name)})")))
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = colors.primary)
