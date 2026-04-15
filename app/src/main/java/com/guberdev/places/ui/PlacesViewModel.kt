@@ -232,27 +232,32 @@ class PlacesViewModel : ViewModel() {
         response: RecommendationResponse,
         apiKey: String
     ): RecommendationResponse = coroutineScope {
+        // Use the user's actual origin as location bias — not AI coordinates which may be hallucinated.
+        // Radius 10km ensures we find the real place even if AI put it in the wrong spot.
+        val originBias = GpLocationBias(GpCircle(GpLatLng(response.latitude, response.longitude), 10_000.0))
+
         val enriched = response.recommendations.map { place ->
             async {
                 try {
-                    val bias = if (place.latitude != null && place.longitude != null) {
-                        GpLocationBias(GpCircle(GpLatLng(place.latitude, place.longitude), 200.0))
-                    } else null
                     val result = googlePlacesApi.searchText(
                         apiKey = apiKey,
-                        fieldMask = "places.id,places.rating,places.userRatingCount,places.websiteUri",
+                        fieldMask = "places.id,places.rating,places.userRatingCount,places.websiteUri,places.location,places.formattedAddress",
                         request = GpTextSearchRequest(
                             textQuery = place.name,
-                            locationBias = bias,
+                            locationBias = originBias,
                             maxResultCount = 1
                         )
                     )
                     val gp = result.places?.firstOrNull()
-                    if (gp != null && (gp.rating != null || gp.websiteUri != null)) {
+                    if (gp != null) {
                         place.copy(
-                            rating = gp.rating ?: place.rating,
+                            rating           = gp.rating ?: place.rating,
                             userRatingsTotal = gp.userRatingCount ?: place.userRatingsTotal,
-                            websiteUri = gp.websiteUri ?: place.websiteUri
+                            websiteUri       = gp.websiteUri ?: place.websiteUri,
+                            // Override AI coordinates with Google-verified real-world location
+                            latitude  = gp.location?.latitude ?: place.latitude,
+                            longitude = gp.location?.longitude ?: place.longitude,
+                            address   = gp.formattedAddress ?: place.address
                         )
                     } else place
                 } catch (e: Exception) {

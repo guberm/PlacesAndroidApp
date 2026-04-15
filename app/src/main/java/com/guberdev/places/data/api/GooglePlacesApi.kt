@@ -33,10 +33,13 @@ data class GpPlace(
     val rating: Double? = null,
     @SerializedName("userRatingCount") val userRatingCount: Int? = null,
     val websiteUri: String? = null,
-    val displayName: GpDisplayName? = null
+    val displayName: GpDisplayName? = null,
+    val location: GpLocation? = null,
+    val formattedAddress: String? = null
 )
 
 data class GpDisplayName(val text: String? = null)
+data class GpLocation(val latitude: Double? = null, val longitude: Double? = null)
 
 // ── Interface ─────────────────────────────────────────────────────────────────
 
