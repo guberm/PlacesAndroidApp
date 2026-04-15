@@ -1,14 +1,17 @@
 # Places Android App
 
-A modern, native Android client built with **Jetpack Compose** that calls AI provider APIs **directly on-device** — no backend server required.
+A modern, native Android client built with **Jetpack Compose** that calls AI provider APIs **directly on-device** — no backend server require
 
-![Version](https://img.shields.io/badge/version-1.10-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.11-green?style=for-the-badge)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-Premium_UI-blue?style=for-the-badge)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Modern-purple?style=for-the-badge)
 
 ## Features
 
 - **Full On-Device AI**: Calls AI provider APIs directly from the device (OpenRouter, OpenAI, Anthropic, Gemini, AzureOpenAI) — no backend server needed.
+- **Auto-Update**: Checks GitHub Releases on launch and prompts to install newer versions in one tap.
+- **Radius Enforcement**: Client-side distance filtering ensures results stay within the requested radius; falls back to the closest places if the AI returns nothing nearby.
+- **Straight-Line Distance**: Distance badge on each card shows aerial distance with a clear label
 - **Auto-Update**: Checks GitHub Releases on launch and prompts to install newer versions in one tap.
 - **Radius Enforcement**: Client-side distance filtering ensures results stay within the requested radius; falls back to the closest places if the AI returns nothing nearby.
 - **Straight-Line Distance**: Distance badge on each card shows aerial distance with a clear label.
@@ -21,9 +24,10 @@ A modern, native Android client built with **Jetpack Compose** that calls AI pro
 - **Responsive Highlight Tags**: Category highlight tags in place cards now wrap gracefully across multiple lines.
 
 ## Tech Stack
-
-- **UI**: Android Jetpack Compose
-- **Language**: Kotlin
+OkHttp3 (direct AI API calls)
+- **Location**: Google Play Services — FusedLocationProviderClient
+- **Geocoding**: Nominatim (OpenStreetMap) — free, no API key required
+- **External APIs**: OpenRouter · OpenAI · Anthropic · Gemini · Azure OpenAI
 - **Networking**: OkHttp3 (direct AI API calls)
 - **Location**: Google Play Services — FusedLocationProviderClient
 - **Geocoding**: Nominatim (OpenStreetMap) — free, no API key required

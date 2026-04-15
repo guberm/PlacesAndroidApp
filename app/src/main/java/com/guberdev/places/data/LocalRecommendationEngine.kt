@@ -44,7 +44,19 @@ class LocalRecommendationEngine {
             }
         }
 
-        // 2. Build prompt and call AI
+        // 2. Reverse-geocode coordinates to real city name if needed
+        val hasRealAddress = !resolvedAddress.isNullOrBlank()
+            && resolvedAddress != "Current Location"
+            && resolvedAddress != "My Location"
+        if (lat != 0.0 || lng != 0.0) {
+            val city = reverseGeocode(lat, lng)
+            if (city != null) {
+                resolvedAddress = city
+                Log.d("LocalEngine", "Reverse-geocoded ($lat,$lng) → $city")
+            }
+        }
+
+        // 3. Build prompt and call AI
         val categoryLabel = formatCategoryLabel(request.categories)
         val locationDesc = buildLocationDesc(lat, lng, resolvedAddress)
         val prompt = buildGenerationPrompt(locationDesc, categoryLabel, request.radiusMeters)
@@ -109,6 +121,30 @@ class LocalRecommendationEngine {
             if (lat.isNaN() || lon.isNaN()) null else Pair(lat, lon)
         } catch (e: Exception) {
             Log.e("LocalEngine", "Geocoding failed: ${e.message}")
+            null
+        }
+    }
+
+    // ── Reverse geocoding ─────────────────────────────────────────────────────
+
+    private fun reverseGeocode(lat: Double, lng: Double): String? {
+        return try {
+            val req = Request.Builder()
+                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=10")
+                .header("User-Agent", "PlacesApp/1.0 (Android)")
+                .build()
+            val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
+            val obj = JSONObject(body)
+            val addr = obj.optJSONObject("address")
+            val city = addr?.optString("city")?.takeIf { it.isNotBlank() }
+                ?: addr?.optString("town")?.takeIf { it.isNotBlank() }
+                ?: addr?.optString("village")?.takeIf { it.isNotBlank() }
+                ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
+            val state = addr?.optString("state")?.takeIf { it.isNotBlank() }
+            val country = addr?.optString("country")?.takeIf { it.isNotBlank() }
+            listOfNotNull(city, state, country).joinToString(", ").takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.e("LocalEngine", "Reverse geocoding failed: ${e.message}")
             null
         }
     }
