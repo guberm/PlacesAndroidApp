@@ -25,9 +25,11 @@ interface PlacesApi {
     ): ProviderModelsResponse
 
     companion object {
-        private const val BASE_URL = "https://places.guber.dev/api/"
+        const val DEFAULT_BASE_URL = "https://places.guber.dev/api/"
 
-        fun create(): PlacesApi {
+        fun create(baseUrl: String = DEFAULT_BASE_URL): PlacesApi {
+            val url = if (baseUrl.isBlank()) DEFAULT_BASE_URL
+                      else if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
             val logger = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
             val client = OkHttpClient.Builder()
                 .addInterceptor(logger)
@@ -36,7 +38,7 @@ interface PlacesApi {
                 .build()
 
             return Retrofit.Builder()
-                .baseUrl(BASE_URL)
+                .baseUrl(url)
                 .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

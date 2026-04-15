@@ -168,6 +168,13 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             .mapValues { it.value as? String ?: "" }
         mutableStateOf<Map<String, String>>(saved)
     }
+    var serverUrl by remember {
+        val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
+        mutableStateOf(prefs.getString("server_url", "") ?: "")
+    }
+    LaunchedEffect(Unit) {
+        if (serverUrl.isNotBlank()) viewModel.updateServerUrl(serverUrl)
+    }
     var showSettings by remember { mutableStateOf(false) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
@@ -195,14 +202,19 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val colors = ThemeColors(isDarkTheme)
 
     if (showSettings) {
-        SettingsDialog(colors, viewModel, userApiKeys, onDismiss = { showSettings = false }) { updatedKeys ->
+        SettingsDialog(colors, viewModel, userApiKeys, serverUrl, onDismiss = { showSettings = false }) { updatedKeys, updatedServerUrl ->
             userApiKeys = updatedKeys
+            serverUrl = updatedServerUrl
             val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
             prefs.edit().apply {
                 // Clear old keys then write fresh
                 prefs.all.keys.filter { it.startsWith("api_key_") }.forEach { remove(it) }
                 updatedKeys.forEach { (k, v) -> if (v.isNotBlank()) putString("api_key_$k", v) }
+                if (updatedServerUrl.isNotBlank()) putString("server_url", updatedServerUrl)
+                else remove("server_url")
             }.apply()
+            if (updatedServerUrl.isNotBlank()) viewModel.updateServerUrl(updatedServerUrl)
+            else viewModel.updateServerUrl(com.guberdev.places.data.api.PlacesApi.DEFAULT_BASE_URL)
             showSettings = false
         }
     }
@@ -326,8 +338,9 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys: Map<String, String>, onDismiss: () -> Unit, onSave: (Map<String, String>) -> Unit) {
+fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys: Map<String, String>, initialServerUrl: String, onDismiss: () -> Unit, onSave: (Map<String, String>, String) -> Unit) {
     var localKeys by remember { mutableStateOf(initialKeys.toMap()) }
+    var localServerUrl by remember { mutableStateOf(initialServerUrl) }
     val providers = listOf("OpenRouter", "OpenAI", "Anthropic", "Gemini", "AzureOpenAI")
     val ctx = LocalContext.current
 
@@ -347,6 +360,22 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
         title = { Text("Settings", color = colors.textPrime, fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Server URL", color = colors.textPrime, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Leave blank to use the default cloud server. For local: http://192.168.x.x:5000/api/", color = colors.textSec, fontSize = 11.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = localServerUrl,
+                            onValueChange = { localServerUrl = it },
+                            placeholder = { Text(com.guberdev.places.data.api.PlacesApi.DEFAULT_BASE_URL, color = colors.textSec, fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime),
+                            singleLine = true
+                        )
+                    }
+                }
                 items(providers) { provider ->
                     ProviderSettingsItem(colors, viewModel, provider, localKeys) { k, v ->
                         localKeys = localKeys + (k to v)
@@ -369,7 +398,7 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
                 }
             }
         },
-        confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = { onSave(localKeys) }) { Text("Save", color = Color.White) } },
+        confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = { onSave(localKeys, localServerUrl.trim()) }) { Text("Save", color = Color.White) } },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val ctx = LocalContext.current

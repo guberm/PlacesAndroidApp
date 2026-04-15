@@ -30,8 +30,12 @@ sealed class PlacesUiState {
 }
 
 class PlacesViewModel : ViewModel() {
-    private val api = PlacesApi.create()
+    private var api = PlacesApi.create()
     private val googlePlacesApi = GooglePlacesApi.create()
+
+    fun updateServerUrl(url: String) {
+        api = PlacesApi.create(url)
+    }
 
     private val _uiState = MutableStateFlow<PlacesUiState>(PlacesUiState.Initial)
     val uiState: StateFlow<PlacesUiState> = _uiState.asStateFlow()
