@@ -182,7 +182,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                     userLat = location.latitude; userLng = location.longitude
                     searchQuery = "Locating…"
                     scope.launch {
-                        searchQuery = viewModel.reverseGeocode(location.latitude, location.longitude)
+                        searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
                             ?: "${location.latitude}, ${location.longitude}"
                     }
                 }
@@ -197,7 +197,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                     userLat = location.latitude; userLng = location.longitude
                     searchQuery = "Locating…"
                     scope.launch {
-                        searchQuery = viewModel.reverseGeocode(location.latitude, location.longitude)
+                        searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
                             ?: "${location.latitude}, ${location.longitude}"
                     }
                 }

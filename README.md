@@ -2,7 +2,7 @@
 
 A modern, native Android client built with **Jetpack Compose** that calls AI provider APIs **directly on-device** — no backend server require
 
-![Version](https://img.shields.io/badge/version-1.12-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.13-green?style=for-the-badge)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-Premium_UI-blue?style=for-the-badge)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Modern-purple?style=for-the-badge)
 
