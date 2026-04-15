@@ -17,15 +17,6 @@ A modern, native Android client built with **Jetpack Compose** that interacts wi
 - **Google Places Integration**: Add your Google Places API key to enrich results with real-world ratings, review counts, and direct website links for every place.
 - **Responsive Highlight Tags**: Category highlight tags in place cards now wrap gracefully across multiple lines.
 
-## What's New in v1.1
-
-- Distance to each place shown in the result card (requires location permission)
-- Tap address row → dialog with **Navigate**, **Share**, and **Website** actions
-- Real Google Places ratings (★) and review counts pulled live when Google API key is configured
-- Website link per place (opens in browser)
-- Category chip labels now split camelCase correctly (e.g. `TouristAttraction` → `Tourist Attraction`)
-- Highlight tags in cards no longer overflow off-screen — they wrap to next line
-
 ## Tech Stack
 
 - **UI**: Android Jetpack Compose
