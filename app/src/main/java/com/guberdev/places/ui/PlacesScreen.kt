@@ -1,13 +1,16 @@
 package com.guberdev.places.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -128,7 +131,10 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp)
+        ) {
             items(categories) { category ->
                 CategoryChip(
                     text = category, isSelected = category == selectedCategory, colors = colors,
@@ -193,7 +199,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                 is PlacesUiState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = colors.primary) }
                 is PlacesUiState.Success -> {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(state.response.recommendations) { place -> PlaceCard(place, colors) }
+                        items(state.response.recommendations) { place -> PlaceCard(place, colors, userLat, userLng) }
                     }
                 }
                 is PlacesUiState.Error -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Error: ${state.message}", color = Color(0xFFEF4444)) }
@@ -224,6 +230,8 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text("Google Places", color = colors.textPrime, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Enables real ratings, review counts & website links for each result", color = colors.textSec, fontSize = 11.sp)
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = localKeys["GooglePlaces"] ?: "",
@@ -336,13 +344,81 @@ fun ProviderSettingsItem(colors: ThemeColors, viewModel: PlacesViewModel, provid
 fun CategoryChip(text: String, isSelected: Boolean, colors: ThemeColors, onClick: () -> Unit) {
     val bgColor = if (isSelected) colors.primary else colors.container
     val textColor = if (isSelected) Color.White else colors.textSec
-    Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(bgColor).clickable { onClick() }.padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Text(text = text, color = textColor, fontWeight = FontWeight.SemiBold)
+    val label = text.replace(Regex("(?<=[a-z])(?=[A-Z])"), " ")
+    Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(bgColor).clickable { onClick() }.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Text(text = label, color = textColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
     }
 }
 
 @Composable
-fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors) {
+fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null) {
+    var showDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val distance = remember(userLat, userLng, place.latitude, place.longitude) {
+        if (userLat != null && userLng != null && place.latitude != null && place.longitude != null) {
+            val results = FloatArray(1)
+            android.location.Location.distanceBetween(userLat, userLng, place.latitude, place.longitude, results)
+            val d = results[0]
+            if (d < 1000) "${d.toInt()} m" else "${"%,.1f".format(d / 1000)} km"
+        } else null
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            containerColor = colors.container,
+            title = { Text(place.name, color = colors.textPrime, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column {
+                    place.address?.let { Text(it, color = colors.textSec, fontSize = 14.sp) }
+                    place.websiteUri?.let {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(it, color = colors.primary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            },
+            confirmButton = {
+                Row {
+                    place.websiteUri?.let { url ->
+                        TextButton(onClick = {
+                            showDialog = false
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }) { Text("Website", color = colors.scoreText) }
+                    }
+                    Button(
+                        onClick = {
+                            showDialog = false
+                            val lat = place.latitude ?: 0.0
+                            val lng = place.longitude ?: 0.0
+                            val navIntent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$lat,$lng")).apply { setPackage("com.google.android.apps.maps") }
+                            try { context.startActivity(navIntent) } catch (e: Exception) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(place.name)})")))
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.primary)
+                    ) { Text("Navigate", color = Color.White) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showDialog = false
+                    val shareText = buildString {
+                        append(place.name)
+                        place.address?.let { append("\n$it") }
+                        if (place.latitude != null && place.longitude != null)
+                            append("\nhttps://maps.google.com/?q=${place.latitude},${place.longitude}")
+                        place.websiteUri?.let { append("\n$it") }
+                    }
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                    }, null))
+                }) { Text("Share", color = colors.primary) }
+            }
+        )
+    }
+
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = colors.container.copy(alpha = 0.8f))) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -352,21 +428,44 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors) {
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            place.address?.let {
+            place.rating?.let { rating ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.textSec, modifier = Modifier.size(16.dp))
+                    Text("\u2605", color = Color(0xFFFBBF24), fontSize = 15.sp)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = it, color = colors.textSec, fontSize = 14.sp)
+                    Text("${"%,.1f".format(rating)}", color = colors.textPrime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    place.userRatingsTotal?.let { total ->
+                        Text(" ($total reviews)", color = colors.textSec, fontSize = 12.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+            if (place.address != null || distance != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showDialog = true }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = place.address ?: "", color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    distance?.let {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(it, color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
             Text(place.description, color = colors.textPrime.copy(alpha = 0.8f), fontSize = 15.sp, lineHeight = 22.sp)
             if (place.highlights.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     place.highlights.take(3).forEach { highlight ->
                         Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(colors.pillBg).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text(highlight, color = colors.textSec, fontSize = 12.sp)
+                            Text(highlight, color = colors.textSec, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

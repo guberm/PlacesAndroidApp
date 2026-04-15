@@ -2,10 +2,19 @@ package com.guberdev.places.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.guberdev.places.data.api.GooglePlacesApi
+import com.guberdev.places.data.api.GpCircle
+import com.guberdev.places.data.api.GpLatLng
+import com.guberdev.places.data.api.GpLocationBias
+import com.guberdev.places.data.api.GpTextSearchRequest
 import com.guberdev.places.data.api.PlacesApi
+import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +29,7 @@ sealed class PlacesUiState {
 
 class PlacesViewModel : ViewModel() {
     private val api = PlacesApi.create()
+    private val googlePlacesApi = GooglePlacesApi.create()
 
     private val _uiState = MutableStateFlow<PlacesUiState>(PlacesUiState.Initial)
     val uiState: StateFlow<PlacesUiState> = _uiState.asStateFlow()
@@ -37,7 +47,6 @@ class PlacesViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.value = PlacesUiState.Loading
             try {
-                // Determine if query is coordinates "lat, lng"
                 var finalLat = lat
                 var finalLng = lng
                 var finalAddr = query?.takeIf { it.isNotBlank() }
@@ -66,11 +75,54 @@ class PlacesViewModel : ViewModel() {
                     userApiKeys = userApiKeys
                 )
                 val response = api.getRecommendations(request)
-                _uiState.value = PlacesUiState.Success(response)
+
+                val googleApiKey = userApiKeys?.get("GooglePlaces")?.takeIf { it.isNotBlank() }
+                val enriched = if (googleApiKey != null) {
+                    enrichWithGoogleRatings(response, googleApiKey)
+                } else {
+                    response
+                }
+
+                _uiState.value = PlacesUiState.Success(enriched)
             } catch (e: Exception) {
                 _uiState.value = PlacesUiState.Error(e.message ?: "An unknown error occurred")
             }
         }
+    }
+
+    private suspend fun enrichWithGoogleRatings(
+        response: RecommendationResponse,
+        apiKey: String
+    ): RecommendationResponse = coroutineScope {
+        val enriched = response.recommendations.map { place ->
+            async {
+                try {
+                    val bias = if (place.latitude != null && place.longitude != null) {
+                        GpLocationBias(GpCircle(GpLatLng(place.latitude, place.longitude), 200.0))
+                    } else null
+                    val result = googlePlacesApi.searchText(
+                        apiKey = apiKey,
+                        fieldMask = "places.id,places.rating,places.userRatingCount,places.websiteUri",
+                        request = GpTextSearchRequest(
+                            textQuery = place.name,
+                            locationBias = bias,
+                            maxResultCount = 1
+                        )
+                    )
+                    val gp = result.places?.firstOrNull()
+                    if (gp != null && (gp.rating != null || gp.websiteUri != null)) {
+                        place.copy(
+                            rating = gp.rating ?: place.rating,
+                            userRatingsTotal = gp.userRatingCount ?: place.userRatingsTotal,
+                            websiteUri = gp.websiteUri ?: place.websiteUri
+                        )
+                    } else place
+                } catch (e: Exception) {
+                    place
+                }
+            }
+        }.awaitAll()
+        response.copy(recommendations = enriched)
     }
 
     suspend fun getModels(provider: String, apiKey: String?, endpoint: String?): ProviderModelsResponse {
