@@ -640,7 +640,10 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                     Text(text = place.address ?: "", color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     distance?.let {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(it, color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(it, color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("straight line", color = colors.textSec, fontSize = 9.sp)
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
