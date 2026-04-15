@@ -127,23 +127,26 @@ class LocalRecommendationEngine {
 
     // ── Reverse geocoding ─────────────────────────────────────────────────────
 
-    /** Returns "City, State, Country" — used for the AI prompt location context. */
+    /** Returns "Neighbourhood, City, State, Country" at zoom=14 — richer context for the AI prompt. */
     internal fun reverseGeocode(lat: Double, lng: Double): String? {
         return try {
             val req = Request.Builder()
-                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=10")
+                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=14")
                 .header("User-Agent", "PlacesApp/1.0 (Android)")
                 .build()
             val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
             val obj = JSONObject(body)
             val addr = obj.optJSONObject("address")
+            val neighbourhood = addr?.optString("neighbourhood")?.takeIf { it.isNotBlank() }
+                ?: addr?.optString("suburb")?.takeIf { it.isNotBlank() }
+                ?: addr?.optString("quarter")?.takeIf { it.isNotBlank() }
             val city = addr?.optString("city")?.takeIf { it.isNotBlank() }
                 ?: addr?.optString("town")?.takeIf { it.isNotBlank() }
                 ?: addr?.optString("village")?.takeIf { it.isNotBlank() }
                 ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
             val state = addr?.optString("state")?.takeIf { it.isNotBlank() }
             val country = addr?.optString("country")?.takeIf { it.isNotBlank() }
-            listOfNotNull(city, state, country).joinToString(", ").takeIf { it.isNotBlank() }
+            listOfNotNull(neighbourhood, city, state, country).joinToString(", ").takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.e("LocalEngine", "Reverse geocoding failed: ${e.message}")
             null

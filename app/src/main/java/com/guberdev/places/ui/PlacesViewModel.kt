@@ -148,35 +148,45 @@ class PlacesViewModel : ViewModel() {
 
     private suspend fun geocodeAddresses(
         response: RecommendationResponse
-    ): RecommendationResponse = coroutineScope {
+    ): RecommendationResponse {
+        // Nominatim ToS: max 1 request/second. Process sequentially with a delay.
+        val DELAY_MS = 1100L
+        var needDelay = false
         val updated = response.recommendations.map { place ->
-            async {
-                try {
-                    // If the place already has coordinates from AI, verify them by reverse-geocoding
-                    // then re-geocode the address to get accurate OSM coords
-                    if (!place.address.isNullOrBlank()) {
-                        // Build a precise query: "Place Name, address" for best OSM match
-                        val query = "${place.name}, ${place.address}"
-                        val coords = engine.geocode(query) ?: engine.geocode(place.address)
+            try {
+                when {
+                    // Already has both address and coordinates — trust the AI data, skip Nominatim
+                    !place.address.isNullOrBlank() && place.latitude != null && place.longitude != null -> place
+
+                    // Has address but no coordinates — geocode to get accurate position
+                    !place.address.isNullOrBlank() -> {
+                        if (needDelay) delay(DELAY_MS) else needDelay = true
+                        val coords = engine.geocode("${place.name}, ${place.address}")
+                            ?: engine.geocode(place.address)
                         if (coords != null) {
                             Log.d("PlacesVM", "OSM geocoded '${place.name}' → ${coords.first},${coords.second}")
                             place.copy(latitude = coords.first, longitude = coords.second)
                         } else place
-                    } else if (place.latitude != null && place.longitude != null) {
-                        // No address string — reverse-geocode coordinates to get a real address
+                    }
+
+                    // Has coordinates but no address — reverse-geocode for display
+                    place.latitude != null && place.longitude != null -> {
+                        if (needDelay) delay(DELAY_MS) else needDelay = true
                         val addr = engine.reverseGeocodeAddress(place.latitude, place.longitude)
                         if (addr != null) {
                             Log.d("PlacesVM", "OSM reverse-geocoded '${place.name}' → $addr")
                             place.copy(address = addr)
                         } else place
-                    } else place
-                } catch (e: Exception) {
-                    Log.w("PlacesVM", "OSM geocode FAILED for '${place.name}': ${e.message}")
-                    place
+                    }
+
+                    else -> place
                 }
+            } catch (e: Exception) {
+                Log.w("PlacesVM", "OSM geocode FAILED for '${place.name}': ${e.message}")
+                place
             }
-        }.awaitAll()
-        response.copy(recommendations = updated)
+        }
+        return response.copy(recommendations = updated)
     }
 
     suspend fun reverseGeocode(lat: Double, lng: Double): String? =

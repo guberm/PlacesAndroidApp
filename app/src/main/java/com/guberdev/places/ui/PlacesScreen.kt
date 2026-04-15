@@ -39,9 +39,43 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+// ── Location helper ──────────────────────────────────────────────────────────
+
+/**
+ * Get a fresh location fix. Tries getCurrentLocation (active GPS/network) first,
+ * falls back to lastLocation (cached) if the fresh fix returns null.
+ */
+private suspend fun getFreshLocation(
+    fusedClient: com.google.android.gms.location.FusedLocationProviderClient,
+    hasFine: Boolean
+): android.location.Location? {
+    val priority = if (hasFine) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+    return try {
+        val cts = CancellationTokenSource()
+        val fresh = suspendCancellableCoroutine<android.location.Location?> { cont ->
+            cont.invokeOnCancellation { cts.cancel() }
+            fusedClient.getCurrentLocation(priority, cts.token)
+                .addOnSuccessListener { cont.resume(it) }
+                .addOnFailureListener { cont.resume(null) }
+        }
+        fresh ?: suspendCancellableCoroutine { cont ->
+            fusedClient.lastLocation
+                .addOnSuccessListener { cont.resume(it) }
+                .addOnFailureListener { cont.resume(null) }
+        }
+    } catch (e: Exception) {
+        Log.w("Location", "getFreshLocation failed: ${e.message}")
+        null
+    }
+}
 
 // ── Log helpers ──────────────────────────────────────────────────────────────
 
@@ -176,32 +210,34 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            try { fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        val hasFine = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val hasCoarse = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (hasFine || hasCoarse) {
+            searchQuery = "Locating…"
+            scope.launch {
+                val location = getFreshLocation(fusedLocationClient, hasFine)
                 if (location != null) {
                     userLat = location.latitude; userLng = location.longitude
-                    searchQuery = "Locating…"
-                    scope.launch {
-                        searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
-                            ?: "${location.latitude}, ${location.longitude}"
-                    }
-                }
-            }} catch (e: Exception) {}
+                    searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
+                        ?: "${location.latitude}, ${location.longitude}"
+                } else { searchQuery = "" }
+            }
         }
     }
 
     fun fetchCurrentLocation() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            try { fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            searchQuery = "Locating…"
+            scope.launch {
+                val location = getFreshLocation(fusedLocationClient, hasFine)
                 if (location != null) {
                     userLat = location.latitude; userLng = location.longitude
-                    searchQuery = "Locating…"
-                    scope.launch {
-                        searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
-                            ?: "${location.latitude}, ${location.longitude}"
-                    }
-                }
-            }} catch (e: Exception) {}
+                    searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
+                        ?: "${location.latitude}, ${location.longitude}"
+                } else { searchQuery = "" }
+            }
         } else {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
@@ -222,8 +258,21 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         }
     }
 
-    // Check for updates once on launch
+    // Auto-fetch location + check for updates on launch
     LaunchedEffect(Unit) {
+        // If permission is already granted, get a fresh location fix immediately
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            searchQuery = "Locating…"
+            val location = getFreshLocation(fusedLocationClient, hasFine)
+            if (location != null) {
+                userLat = location.latitude; userLng = location.longitude
+                searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
+                    ?: "${location.latitude}, ${location.longitude}"
+            } else { searchQuery = "" }
+        }
+        // Check for app updates
         val installedVersion = try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
@@ -350,8 +399,11 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                         }
                     }
                 is PlacesUiState.Success -> {
+                    // Use the response's resolved origin (works for both GPS and typed address)
+                    val originLat = state.response.latitude.takeIf { it != 0.0 } ?: userLat
+                    val originLng = state.response.longitude.takeIf { it != 0.0 } ?: userLng
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(state.response.recommendations) { place -> PlaceCard(place, colors, userLat, userLng) }
+                        items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng) }
                     }
                 }
                 is PlacesUiState.Error -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Error: ${state.message}", color = Color(0xFFEF4444)) }
