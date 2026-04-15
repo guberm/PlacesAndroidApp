@@ -211,7 +211,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys: Map<String, String>, onDismiss: () -> Unit, onSave: (Map<String, String>) -> Unit) {
-    var localKeys by remember { mutableStateOf(initialKeys.toMutableMap()) }
+    var localKeys by remember { mutableStateOf(initialKeys.toMap()) }
     val providers = listOf("OpenRouter", "OpenAI", "Anthropic", "Gemini", "AzureOpenAI")
 
     AlertDialog(
@@ -224,7 +224,7 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
             LazyColumn(verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 items(providers) { provider ->
                     ProviderSettingsItem(colors, viewModel, provider, localKeys) { k, v ->
-                        localKeys[k] = v
+                        localKeys = localKeys + (k to v)
                     }
                 }
                 item {
@@ -235,7 +235,7 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = localKeys["GooglePlaces"] ?: "",
-                            onValueChange = { localKeys["GooglePlaces"] = it },
+                            onValueChange = { localKeys = localKeys + ("GooglePlaces" to it) },
                             placeholder = { Text("API Key", color = colors.textSec) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime)
@@ -251,7 +251,7 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProviderSettingsItem(colors: ThemeColors, viewModel: PlacesViewModel, provider: String, keys: MutableMap<String, String>, onUpdate: (String, String) -> Unit) {
+fun ProviderSettingsItem(colors: ThemeColors, viewModel: PlacesViewModel, provider: String, keys: Map<String, String>, onUpdate: (String, String) -> Unit) {
     var apiKey by remember { mutableStateOf(keys[provider] ?: "") }
     var endpoint by remember { mutableStateOf(keys["AzureOpenAIEndpoint"] ?: "") }
     var selectedModelId by remember { mutableStateOf(keys["${provider}Model"] ?: "") }
