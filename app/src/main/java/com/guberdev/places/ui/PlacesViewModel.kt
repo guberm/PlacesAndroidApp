@@ -121,13 +121,26 @@ class PlacesViewModel : ViewModel() {
                     response
                 }
 
+                // Deduplicate: after Google enrichment multiple AI results may resolve to the same real place.
+                val deduped = enriched.copy(
+                    recommendations = enriched.recommendations.distinctBy { place ->
+                        val nameKey = place.name.trim().lowercase()
+                        val addrKey = place.address?.trim()?.lowercase()
+                            ?: "${place.latitude?.let { "%.3f".format(it) }},${place.longitude?.let { "%.3f".format(it) }}"
+                        "$nameKey|$addrKey"
+                    }.also { unique ->
+                        val removed = enriched.recommendations.size - unique.size
+                        if (removed > 0) Log.d("PlacesVM", "Deduplication removed $removed duplicate(s)")
+                    }
+                )
+
                 // Hard-filter: remove places whose coordinates fall outside the requested radius.
                 val filtered = if (radiusMeters > 0) {
                     val distResults = FloatArray(1)
-                    val withDist = enriched.recommendations.map { place ->
+                    val withDist = deduped.recommendations.map { place ->
                         if (place.latitude != null && place.longitude != null) {
                             android.location.Location.distanceBetween(
-                                enriched.latitude, enriched.longitude,
+                                deduped.latitude, deduped.longitude,
                                 place.latitude, place.longitude,
                                 distResults
                             )
@@ -148,11 +161,11 @@ class PlacesViewModel : ViewModel() {
                             .sortedBy { it.second }
                             .take(maxResults)
                             .map { it.first }
-                        enriched.copy(recommendations = closest)
+                        deduped.copy(recommendations = closest)
                     } else {
-                        enriched.copy(recommendations = within)
+                        deduped.copy(recommendations = within)
                     }
-                } else enriched
+                } else deduped
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
 
