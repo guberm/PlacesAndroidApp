@@ -41,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModel
 import kotlinx.coroutines.launch
@@ -180,6 +181,7 @@ class ThemeColors(isDark: Boolean) {
 @Composable
 fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    val suggestions by viewModel.suggestions.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
     
@@ -306,17 +308,55 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it; userLat = null; userLng = null },
-            placeholder = { Text("City, Address or Lat,Lng", color = colors.textSec) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.textSec) },
-            trailingIcon = { IconButton(onClick = { fetchCurrentLocation() }) { Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary) } },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = TextFieldDefaults.outlinedTextFieldColors(containerColor = colors.container, unfocusedBorderColor = Color.Transparent, focusedBorderColor = colors.primary, focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime),
-            singleLine = true
-        )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = {
+                    searchQuery = it
+                    userLat = null
+                    userLng = null
+                    viewModel.onSearchQueryChanged(it)
+                },
+                placeholder = { Text("City, Address or Lat,Lng", color = colors.textSec) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.textSec) },
+                trailingIcon = {
+                    IconButton(onClick = {
+                        viewModel.clearSuggestions()
+                        fetchCurrentLocation()
+                    }) { Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary) }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = TextFieldDefaults.outlinedTextFieldColors(containerColor = colors.container, unfocusedBorderColor = Color.Transparent, focusedBorderColor = colors.primary, focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime),
+                singleLine = true
+            )
+            DropdownMenu(
+                expanded = suggestions.isNotEmpty(),
+                onDismissRequest = { viewModel.clearSuggestions() },
+                modifier = Modifier.fillMaxWidth().background(colors.container)
+            ) {
+                suggestions.forEach { suggestion ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(suggestion.shortLine, color = colors.textPrime, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (suggestion.secondLine.isNotBlank())
+                                    Text(suggestion.secondLine, color = colors.textSec, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = colors.textSec, modifier = Modifier.size(16.dp))
+                        },
+                        onClick = {
+                            searchQuery = suggestion.displayName
+                            userLat = suggestion.latitude
+                            userLng = suggestion.longitude
+                            viewModel.clearSuggestions()
+                        }
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -370,6 +410,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         Button(
             onClick = {
                 if (searchQuery.isNotEmpty() || (userLat != null && userLng != null)) {
+                    viewModel.clearSuggestions()
                     viewModel.searchPlaces(searchQuery, userLat, userLng, selectedCategory, radius.toInt(), maxResults, forceRefresh, userApiKeys.takeIf { it.isNotEmpty() })
                 }
             },

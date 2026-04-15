@@ -1,6 +1,7 @@
 package com.guberdev.places.data
 
 import android.util.Log
+import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModel
 import com.guberdev.places.data.model.ProviderModelsResponse
@@ -158,6 +159,57 @@ class LocalRecommendationEngine {
         } catch (e: Exception) {
             Log.e("LocalEngine", "Reverse geocoding failed: ${e.message}")
             null
+        }
+    }
+
+    /** Address autocomplete — returns up to 5 suggestions for a partial query string. */
+    fun searchAddress(query: String): List<AddressSuggestion> {
+        return try {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val req = Request.Builder()
+                .url("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=5&addressdetails=1&accept-language=en")
+                .header("User-Agent", "PlacesApp/1.0 (Android)")
+                .build()
+            val body = client.newCall(req).execute().use { it.body?.string() } ?: return emptyList()
+            val arr = JSONArray(body)
+            (0 until arr.length()).mapNotNull { i ->
+                try {
+                    val obj = arr.getJSONObject(i)
+                    val lat = obj.optDouble("lat", Double.NaN)
+                    val lon = obj.optDouble("lon", Double.NaN)
+                    if (lat.isNaN() || lon.isNaN()) return@mapNotNull null
+
+                    val addr = obj.optJSONObject("address")
+                    val house = addr?.optString("house_number")?.takeIf { it.isNotBlank() }
+                    val road  = addr?.optString("road")?.takeIf { it.isNotBlank() }
+                    val city  = addr?.optString("city")?.takeIf { it.isNotBlank() }
+                        ?: addr?.optString("town")?.takeIf { it.isNotBlank() }
+                        ?: addr?.optString("village")?.takeIf { it.isNotBlank() }
+                        ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
+                    val state   = addr?.optString("state")?.takeIf { it.isNotBlank() }
+                    val country = addr?.optString("country")?.takeIf { it.isNotBlank() }
+
+                    val street    = listOfNotNull(house, road).joinToString(" ").takeIf { it.isNotBlank() }
+                    val shortLine = listOfNotNull(street, city).joinToString(", ").ifBlank {
+                        obj.optString("display_name").split(",").take(2).joinToString(",").trim()
+                    }
+                    val secondLine  = listOfNotNull(state, country).joinToString(", ")
+                    val displayName = listOfNotNull(street, city, state, country).joinToString(", ").ifBlank {
+                        obj.optString("display_name").split(",").take(4).joinToString(",").trim()
+                    }
+
+                    AddressSuggestion(
+                        displayName = displayName,
+                        shortLine   = shortLine,
+                        secondLine  = secondLine,
+                        latitude    = lat,
+                        longitude   = lon
+                    )
+                } catch (e: Exception) { null }
+            }
+        } catch (e: Exception) {
+            Log.e("LocalEngine", "searchAddress failed: ${e.message}")
+            emptyList()
         }
     }
 

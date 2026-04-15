@@ -1,36 +1,32 @@
 # Places Android App
 
-A modern, native Android client built with **Jetpack Compose** that calls AI provider APIs **directly on-device** — no backend server require
+A modern, native Android client built with **Jetpack Compose** that calls AI provider APIs **directly on-device** — no backend server required.
 
-![Version](https://img.shields.io/badge/version-1.15-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.16-green?style=for-the-badge)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-Premium_UI-blue?style=for-the-badge)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Modern-purple?style=for-the-badge)
 
 ## Features
 
 - **Full On-Device AI**: Calls AI provider APIs directly from the device (OpenRouter, OpenAI, Anthropic, Gemini, AzureOpenAI) — no backend server needed.
-- **Auto-Update**: Checks GitHub Releases on launch and prompts to install newer versions in one tap.
-- **Radius Enforcement**: Client-side distance filtering ensures results stay within the requested radius; falls back to the closest places if the AI returns nothing nearby.
-- **Straight-Line Distance**: Distance badge on each card shows aerial distance with a clear label
-- **Auto-Update**: Checks GitHub Releases on launch and prompts to install newer versions in one tap.
-- **Radius Enforcement**: Client-side distance filtering ensures results stay within the requested radius; falls back to the closest places if the AI returns nothing nearby.
-- **Straight-Line Distance**: Distance badge on each card shows aerial distance with a clear label.
-- **Dynamic AI Configuration**: Define your LLM API keys on the fly. Dynamically load and assign available generation models across multiple providers including *OpenRouter*, *OpenAI*, *Anthropic*, *Gemini*, and *Azure OpenAI*.
-- **Modern Jetpack Compose UI**: Glassmorphism visuals, smooth state transitions, infinite scrolling menus, and seamless Light/Dark mode themes.
-- **My Location Support**: Effortlessly centers searches on your immediate surroundings without manual typing.
-- **Distance Display**: See real-time walking/driving distance from your current location to each result.
+- **Address Autocomplete**: Start typing any address or city — suggestions appear instantly via Nominatim, works for any country worldwide.
+- **My Location Support**: Tap the GPS icon to auto-detect your location with a full street address (house number + road + city + province).
+- **Accurate Distances**: Place coordinates are always verified via Nominatim geocoding — AI-hallucinated coordinates are never trusted for distance calculation.
+- **Straight-Line Distance**: Distance badge on each card shows aerial distance with a clear "straight line" label.
 - **Navigation & Sharing**: Tap any address to open Google Maps navigation or share the location with others.
-- **Google Places Integration**: Add your Google Places API key to enrich results with real-world ratings, review counts, and direct website links for every place.
-- **Responsive Highlight Tags**: Category highlight tags in place cards now wrap gracefully across multiple lines.
+- **Google Places Integration**: Add your Google Places API key to enrich results with real-world ratings, review counts, and direct website links.
+- **Radius Enforcement**: Client-side distance filtering ensures results stay within the requested radius; falls back to the closest places if the AI returns nothing nearby.
+- **Dynamic AI Configuration**: Configure LLM API keys on the fly and load available models per provider (OpenRouter, OpenAI, Anthropic, Gemini, Azure OpenAI).
+- **Modern Jetpack Compose UI**: Glassmorphism visuals, smooth state transitions, Light/Dark mode themes.
+- **Auto-Update**: Checks GitHub Releases on launch and prompts to install newer versions in one tap.
+- **Diagnostic Logs**: Share masked logs from Settings — API keys are automatically redacted before sharing.
 
 ## Tech Stack
-OkHttp3 (direct AI API calls)
-- **Location**: Google Play Services — FusedLocationProviderClient
-- **Geocoding**: Nominatim (OpenStreetMap) — free, no API key required
-- **External APIs**: OpenRouter · OpenAI · Anthropic · Gemini · Azure OpenAI
+
+- **UI**: Jetpack Compose + Material3
 - **Networking**: OkHttp3 (direct AI API calls)
 - **Location**: Google Play Services — FusedLocationProviderClient
-- **Geocoding**: Nominatim (OpenStreetMap) — free, no API key required
+- **Geocoding / Autocomplete**: Nominatim (OpenStreetMap) — free, no API key required
 - **External APIs**: OpenRouter · OpenAI · Anthropic · Gemini · Azure OpenAI · Google Places API (New)
 - **Device Support**: Android 7.0+ (Min SDK 24)
 
@@ -43,7 +39,7 @@ Navigate to the `Settings ⚙` gear in the top right to configure your API keys.
 | OpenRouter / OpenAI / Anthropic / Gemini / AzureOpenAI | LLM provider for AI recommendations |
 | **Google Places** | Enriches results with real ratings, review counts & website links |
 
-*Note:* Keys set in this UI are injected per-request and override the backend's default configuration.
+Keys are persisted in SharedPreferences and survive app reinstalls/updates.
 
 ## Download
 

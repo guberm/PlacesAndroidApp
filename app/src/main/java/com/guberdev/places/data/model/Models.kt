@@ -49,3 +49,11 @@ data class ProviderModelsResponse(
     val models: List<ProviderModel>,
     val warning: String?
 )
+
+data class AddressSuggestion(
+    val displayName: String,   // used to fill the search field on selection
+    val shortLine: String,     // e.g. "540 Stream Cres, Oakville"
+    val secondLine: String,    // e.g. "Ontario, Canada"
+    val latitude: Double,
+    val longitude: Double
+)

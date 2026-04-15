@@ -8,12 +8,14 @@ import com.guberdev.places.data.api.GpCircle
 import com.guberdev.places.data.api.GpLatLng
 import com.guberdev.places.data.api.GpLocationBias
 import com.guberdev.places.data.api.GpTextSearchRequest
+import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -37,6 +39,27 @@ class PlacesViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlacesUiState>(PlacesUiState.Initial)
     val uiState: StateFlow<PlacesUiState> = _uiState.asStateFlow()
+
+    private val _suggestions = MutableStateFlow<List<AddressSuggestion>>(emptyList())
+    val suggestions: StateFlow<List<AddressSuggestion>> = _suggestions.asStateFlow()
+    private var suggestionJob: Job? = null
+
+    fun onSearchQueryChanged(query: String) {
+        suggestionJob?.cancel()
+        if (query.length < 3) { _suggestions.value = emptyList(); return }
+        suggestionJob = viewModelScope.launch {
+            delay(500) // debounce
+            val results = withContext(Dispatchers.IO) {
+                try { engine.searchAddress(query) } catch (e: Exception) { emptyList() }
+            }
+            _suggestions.value = results
+        }
+    }
+
+    fun clearSuggestions() {
+        suggestionJob?.cancel()
+        _suggestions.value = emptyList()
+    }
 
     fun searchPlaces(
         query: String?,
@@ -155,10 +178,9 @@ class PlacesViewModel : ViewModel() {
         val updated = response.recommendations.map { place ->
             try {
                 when {
-                    // Already has both address and coordinates — trust the AI data, skip Nominatim
-                    !place.address.isNullOrBlank() && place.latitude != null && place.longitude != null -> place
-
-                    // Has address but no coordinates — geocode to get accurate position
+                    // Has address — always geocode via Nominatim for accurate coordinates.
+                    // AI-provided coordinates are frequently hallucinated; real address geocoding
+                    // is the only reliable source for correct distance calculation.
                     !place.address.isNullOrBlank() -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
                         val coords = engine.geocode("${place.name}, ${place.address}")
@@ -166,10 +188,14 @@ class PlacesViewModel : ViewModel() {
                         if (coords != null) {
                             Log.d("PlacesVM", "OSM geocoded '${place.name}' → ${coords.first},${coords.second}")
                             place.copy(latitude = coords.first, longitude = coords.second)
-                        } else place
+                        } else {
+                            // Nominatim failed — fall back to AI coordinates if available
+                            Log.w("PlacesVM", "OSM geocode failed for '${place.name}', keeping AI coords")
+                            place
+                        }
                     }
 
-                    // Has coordinates but no address — reverse-geocode for display
+                    // Has only coordinates — reverse-geocode for address display
                     place.latitude != null && place.longitude != null -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
                         val addr = engine.reverseGeocodeAddress(place.latitude, place.longitude)
