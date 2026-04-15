@@ -44,15 +44,23 @@ class LocalRecommendationEngine {
             }
         }
 
-        // 2. Reverse-geocode coordinates to real city name if needed
-        val hasRealAddress = !resolvedAddress.isNullOrBlank()
+        // 2. Enrich location description for the AI prompt
+        // If the caller already resolved a real address (e.g. from the UI's reverse-geocode),
+        // reuse it directly — avoid a redundant Nominatim call within the same second.
+        val callerHasRealAddress = !resolvedAddress.isNullOrBlank()
             && resolvedAddress != "Current Location"
             && resolvedAddress != "My Location"
-        if (lat != 0.0 || lng != 0.0) {
+            && resolvedAddress != "Locating…"
+            && !resolvedAddress!!.matches(Regex("""-?\d+\.\d+,\s*-?\d+\.\d+"""))
+        if (!callerHasRealAddress && (lat != 0.0 || lng != 0.0)) {
             val city = reverseGeocode(lat, lng)
             if (city != null) {
                 resolvedAddress = city
                 Log.d("LocalEngine", "Reverse-geocoded ($lat,$lng) → $city")
+            } else {
+                // Nominatim unavailable — give AI explicit coordinates as fallback
+                resolvedAddress = "${"%.5f".format(lat)}, ${"%.5f".format(lng)}"
+                Log.w("LocalEngine", "reverseGeocode failed — using raw coords as location context")
             }
         }
 

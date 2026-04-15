@@ -219,7 +219,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                 if (location != null) {
                     userLat = location.latitude; userLng = location.longitude
                     searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
-                        ?: "${location.latitude}, ${location.longitude}"
+                        ?: "My Location"
                 } else { searchQuery = "" }
             }
         }
@@ -235,7 +235,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                 if (location != null) {
                     userLat = location.latitude; userLng = location.longitude
                     searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
-                        ?: "${location.latitude}, ${location.longitude}"
+                        ?: "My Location"
                 } else { searchQuery = "" }
             }
         } else {
@@ -269,7 +269,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             if (location != null) {
                 userLat = location.latitude; userLng = location.longitude
                 searchQuery = viewModel.reverseGeocodeFullAddress(location.latitude, location.longitude)
-                    ?: "${location.latitude}, ${location.longitude}"
+                    ?: "My Location"
             } else { searchQuery = "" }
         }
         // Check for app updates

@@ -192,9 +192,15 @@ class PlacesViewModel : ViewModel() {
     suspend fun reverseGeocode(lat: Double, lng: Double): String? =
         withContext(Dispatchers.IO) { engine.reverseGeocode(lat, lng) }
 
-    /** Full street-level address (house number + road + city) for display in the search field. */
+    /** Full street-level address for display in the search field. Retries once on failure. */
     suspend fun reverseGeocodeFullAddress(lat: Double, lng: Double): String? =
-        withContext(Dispatchers.IO) { engine.reverseGeocodeAddress(lat, lng) }
+        withContext(Dispatchers.IO) {
+            engine.reverseGeocodeAddress(lat, lng)
+                ?: run {
+                    delay(1200)
+                    engine.reverseGeocodeAddress(lat, lng)
+                }
+        }
 
     private suspend fun enrichWithGoogleRatings(
         response: RecommendationResponse,
