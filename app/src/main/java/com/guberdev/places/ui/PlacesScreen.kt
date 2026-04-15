@@ -169,6 +169,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         mutableStateOf<Map<String, String>>(saved)
     }
     var showSettings by remember { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<com.guberdev.places.data.UpdateInfo?>(null) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -204,6 +205,27 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             }.apply()
             showSettings = false
         }
+    }
+
+    // Check for updates once on launch
+    LaunchedEffect(Unit) {
+        val installedVersion = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+        } catch (e: Exception) { "" }
+        val update = com.guberdev.places.data.UpdateChecker.check(installedVersion)
+        if (update != null) pendingUpdate = update
+    }
+
+    pendingUpdate?.let { update ->
+        UpdateDialog(
+            colors = colors,
+            update = update,
+            onDismiss = { pendingUpdate = null },
+            onUpdate = { url ->
+                pendingUpdate = null
+                downloadAndInstallApk(context, url)
+            }
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors.bgGradient)).padding(top = 48.dp, start = 16.dp, end = 16.dp)) {
@@ -533,6 +555,72 @@ fun CategoryChip(text: String, isSelected: Boolean, colors: ThemeColors, onClick
     val label = text.replace(Regex("(?<=[a-z])(?=[A-Z])"), " ")
     Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(bgColor).clickable { onClick() }.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         Text(text = label, color = textColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+    }
+}
+
+@Composable
+fun UpdateDialog(
+    colors: ThemeColors,
+    update: com.guberdev.places.data.UpdateInfo,
+    onDismiss: () -> Unit,
+    onUpdate: (String) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.container,
+        title = { Text("Update available — v${update.versionName}", color = colors.textPrime, fontWeight = FontWeight.Bold) },
+        text = {
+            LazyColumn {
+                item {
+                    Text("What's new:", color = colors.textPrime, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        update.releaseNotes.ifBlank { "No release notes." },
+                        color = colors.textSec,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onUpdate(update.downloadUrl) },
+                colors = ButtonDefaults.buttonColors(containerColor = colors.primary)
+            ) { Text("Update", color = Color.White) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Later", color = colors.textSec) }
+        }
+    )
+}
+
+fun downloadAndInstallApk(context: android.content.Context, url: String) {
+    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val req = okhttp3.Request.Builder().url(url).build()
+            val bytes = client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@launch
+                resp.body?.bytes() ?: return@launch
+            }
+            val file = java.io.File(context.cacheDir, "update.apk")
+            file.writeBytes(bytes)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.provider", file
+            )
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("UpdateInstall", "Download/install failed: ${e.message}")
+        }
     }
 }
 

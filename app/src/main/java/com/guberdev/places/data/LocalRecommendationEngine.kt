@@ -47,7 +47,7 @@ class LocalRecommendationEngine {
         // 2. Build prompt and call AI
         val categoryLabel = formatCategoryLabel(request.categories)
         val locationDesc = buildLocationDesc(lat, lng, resolvedAddress)
-        val prompt = buildGenerationPrompt(locationDesc, categoryLabel)
+        val prompt = buildGenerationPrompt(locationDesc, categoryLabel, request.radiusMeters)
 
         val (raw, providerName) = callAi(prompt, userApiKeys)
         Log.d("LocalEngine", "Got response from $providerName (${raw.length} chars)")
@@ -125,8 +125,17 @@ class LocalRecommendationEngine {
         }
     }
 
-    private fun buildGenerationPrompt(locationDesc: String, categoryLabel: String): String = """
-You are an expert local travel guide. Recommend real, existing $categoryLabel near $locationDesc.
+    private fun buildGenerationPrompt(locationDesc: String, categoryLabel: String, radiusMeters: Int): String {
+        val radiusDesc = when {
+            radiusMeters <= 0 -> ""
+            radiusMeters < 1000 -> "within ${radiusMeters}m (${radiusMeters} meters)"
+            else -> "within ${radiusMeters / 1000.0}km (${radiusMeters} meters)"
+        }
+        val radiusRule = if (radiusDesc.isNotEmpty())
+            "- ALL places MUST be physically located $radiusDesc of the given coordinates. Do NOT include anything further away."
+        else ""
+        return """
+You are an expert local travel guide. Recommend real, existing $categoryLabel near $locationDesc${if (radiusDesc.isNotEmpty()) ", strictly $radiusDesc" else ""}.
 
 Return ONLY valid JSON with NO additional text, markdown, or explanation:
 {
@@ -147,10 +156,12 @@ Return ONLY valid JSON with NO additional text, markdown, or explanation:
 Rules:
 - Provide 12-15 recommendations
 - Only include real, verified existing places
-- Order by relevance and quality
+$radiusRule
+- Order by distance from the coordinates (closest first)
 - Be specific about addresses and coordinates
 - confidenceScore should reflect how certain you are this place exists and is relevant
 """.trimIndent()
+    }
 
     // ── AI provider dispatch ──────────────────────────────────────────────────
 

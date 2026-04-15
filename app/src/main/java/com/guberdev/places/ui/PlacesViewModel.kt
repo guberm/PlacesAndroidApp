@@ -97,23 +97,36 @@ class PlacesViewModel : ViewModel() {
                 }
 
                 // Hard-filter: remove places whose coordinates fall outside the requested radius.
-                // The backend (AI) may return results beyond the radius, so we enforce it client-side.
                 val filtered = if (radiusMeters > 0) {
                     val distResults = FloatArray(1)
-                    val within = enriched.recommendations.filter { place ->
+                    val withDist = enriched.recommendations.map { place ->
                         if (place.latitude != null && place.longitude != null) {
                             android.location.Location.distanceBetween(
                                 enriched.latitude, enriched.longitude,
                                 place.latitude, place.longitude,
                                 distResults
                             )
-                            val distM = distResults[0]
-                            val keep = distM <= radiusMeters * 1.1f // 10% tolerance for geocoding imprecision
-                            if (!keep) Log.d("PlacesVM", "Filtered out '${place.name}' at ${distM.toInt()}m (radius=${radiusMeters}m)")
-                            keep
-                        } else true // no coords — keep it
+                            Pair(place, distResults[0])
+                        } else Pair(place, 0f)
                     }
-                    enriched.copy(recommendations = within)
+                    val within = withDist.filter { (place, distM) ->
+                        val keep = place.latitude == null || distM <= radiusMeters * 1.1f
+                        if (!keep) Log.d("PlacesVM", "Filtered out '${place.name}' at ${distM.toInt()}m (radius=${radiusMeters}m)")
+                        keep
+                    }.map { it.first }
+
+                    if (within.isEmpty() && withDist.any { it.first.latitude != null }) {
+                        // AI returned nothing nearby — fall back to the closest maxResults, sorted by distance
+                        Log.w("PlacesVM", "Radius filter removed all results — falling back to closest $maxResults")
+                        val closest = withDist
+                            .filter { it.first.latitude != null }
+                            .sortedBy { it.second }
+                            .take(maxResults)
+                            .map { it.first }
+                        enriched.copy(recommendations = closest)
+                    } else {
+                        enriched.copy(recommendations = within)
+                    }
                 } else enriched
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
