@@ -1,6 +1,7 @@
 package com.guberdev.places.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -66,11 +67,17 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
     var userLat by remember { mutableStateOf<Double?>(null) }
     var userLng by remember { mutableStateOf<Double?>(null) }
-    
-    var userApiKeys by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var showSettings by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    var userApiKeys by remember {
+        val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
+        val saved = prefs.all
+            .filter { it.key.startsWith("api_key_") }
+            .mapKeys { it.key.removePrefix("api_key_") }
+            .mapValues { it.value as? String ?: "" }
+        mutableStateOf<Map<String, String>>(saved)
+    }
+    var showSettings by remember { mutableStateOf(false) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -97,8 +104,14 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val colors = ThemeColors(isDarkTheme)
 
     if (showSettings) {
-        SettingsDialog(colors, viewModel, userApiKeys, onDismiss = { showSettings = false }) { updatedKeys -> 
+        SettingsDialog(colors, viewModel, userApiKeys, onDismiss = { showSettings = false }) { updatedKeys ->
             userApiKeys = updatedKeys
+            val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
+            prefs.edit().apply {
+                // Clear old keys then write fresh
+                prefs.all.keys.filter { it.startsWith("api_key_") }.forEach { remove(it) }
+                updatedKeys.forEach { (k, v) -> if (v.isNotBlank()) putString("api_key_$k", v) }
+            }.apply()
             showSettings = false
         }
     }
