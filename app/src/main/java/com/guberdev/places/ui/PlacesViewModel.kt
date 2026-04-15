@@ -12,6 +12,7 @@ import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
+import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -47,6 +48,8 @@ class PlacesViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.value = PlacesUiState.Loading
             try {
+                Log.d("PlacesVM", "searchPlaces START query=$query lat=$lat lng=$lng category=$category radius=$radiusMeters max=$maxResults")
+                val startTime = System.currentTimeMillis()
                 var finalLat = lat
                 var finalLng = lng
                 var finalAddr = query?.takeIf { it.isNotBlank() }
@@ -74,7 +77,9 @@ class PlacesViewModel : ViewModel() {
                     forceRefresh = forceRefresh,
                     userApiKeys = userApiKeys
                 )
+                Log.d("PlacesVM", "getRecommendations sending request: $request")
                 val response = api.getRecommendations(request)
+                Log.d("PlacesVM", "getRecommendations OK in ${System.currentTimeMillis() - startTime}ms — ${response.recommendations.size} results")
 
                 val googleApiKey = userApiKeys?.get("GooglePlaces")?.takeIf { it.isNotBlank() }
                 val enriched = if (googleApiKey != null) {
@@ -83,8 +88,10 @@ class PlacesViewModel : ViewModel() {
                     response
                 }
 
+                Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms")
                 _uiState.value = PlacesUiState.Success(enriched)
             } catch (e: Exception) {
+                Log.e("PlacesVM", "searchPlaces ERROR: ${e.javaClass.simpleName} — ${e.message}", e)
                 _uiState.value = PlacesUiState.Error(e.message ?: "An unknown error occurred")
             }
         }
@@ -118,6 +125,7 @@ class PlacesViewModel : ViewModel() {
                         )
                     } else place
                 } catch (e: Exception) {
+                    Log.w("PlacesVM", "enrichWithGoogleRatings FAILED for '${place.name}': ${e.javaClass.simpleName} — ${e.message}")
                     place
                 }
             }

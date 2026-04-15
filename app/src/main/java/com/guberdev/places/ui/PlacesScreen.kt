@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -39,6 +40,35 @@ import com.google.android.gms.location.LocationServices
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModel
 import kotlinx.coroutines.launch
+
+// ── Log sharing ──────────────────────────────────────────────────────────────
+
+private fun collectAndShareLogs(context: Context, keysToMask: Map<String, String>) {
+    try {
+        val raw = Runtime.getRuntime()
+            .exec(arrayOf("logcat", "-d", "-v", "time", "*:D"))
+            .inputStream.bufferedReader().readText()
+
+        // Mask every non-blank API key value
+        var masked = raw
+        keysToMask.values
+            .filter { it.length >= 6 }
+            .forEach { key ->
+                // keep first 4 chars so the user can identify which key, mask the rest
+                val visible = key.take(4)
+                masked = masked.replace(key, "$visible****REDACTED****")
+            }
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "PlacesApp diagnostic log")
+            putExtra(Intent.EXTRA_TEXT, masked)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share log"))
+    } catch (e: Exception) {
+        Log.e("PlacesVM", "collectAndShareLogs failed: ${e.message}", e)
+    }
+}
 
 class ThemeColors(isDark: Boolean) {
     val bgGradient = if (isDark) listOf(Color(0xFF0F172A), Color(0xFF1E293B)) else listOf(Color(0xFFF8FAFC), Color(0xFFE2E8F0))
@@ -258,7 +288,15 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
             }
         },
         confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = { onSave(localKeys) }) { Text("Save", color = Color.White) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = colors.textSec) } }
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val ctx = LocalContext.current
+                TextButton(onClick = { collectAndShareLogs(ctx, localKeys) }) {
+                    Text("Share Logs", color = colors.textSec, fontSize = 12.sp)
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel", color = colors.textSec) }
+            }
+        }
     )
 }
 
