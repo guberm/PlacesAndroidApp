@@ -118,7 +118,7 @@ class PlacesViewModel : ViewModel() {
                 val enriched = if (googleApiKey != null) {
                     enrichWithGoogleRatings(response, googleApiKey)
                 } else {
-                    response
+                    enrichWithPhoton(response)
                 }
 
                 // Deduplicate: after Google enrichment multiple AI results may resolve to the same real place.
@@ -191,9 +191,10 @@ class PlacesViewModel : ViewModel() {
         val updated = response.recommendations.map { place ->
             try {
                 when {
-                    // Has address — always geocode via Nominatim for accurate coordinates.
-                    // AI-provided coordinates are frequently hallucinated; real address geocoding
-                    // is the only reliable source for correct distance calculation.
+                    // Already has verified coords from enrichment (Google or Photon) — skip re-geocoding.
+                    !place.address.isNullOrBlank() && place.latitude != null && place.longitude != null -> place
+
+                    // Has address but no verified coords — geocode via Photon for accurate coordinates.
                     !place.address.isNullOrBlank() -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
                         val coords = engine.geocode("${place.name}, ${place.address}")
@@ -280,6 +281,27 @@ class PlacesViewModel : ViewModel() {
             }
         }.awaitAll()
         response.copy(recommendations = enriched)
+    }
+
+    private suspend fun enrichWithPhoton(response: RecommendationResponse): RecommendationResponse {
+        val DELAY_MS = 200L
+        var needDelay = false
+        val updated = response.recommendations.map { place ->
+            try {
+                if (needDelay) delay(DELAY_MS) else needDelay = true
+                val coords = withContext(Dispatchers.IO) {
+                    engine.searchPlaceNearby(place.name, response.latitude, response.longitude)
+                }
+                if (coords != null) {
+                    Log.d("PlacesVM", "Photon place search '${place.name}' → ${coords.first},${coords.second}")
+                    place.copy(latitude = coords.first, longitude = coords.second)
+                } else place
+            } catch (e: Exception) {
+                Log.w("PlacesVM", "Photon enrichment failed for '${place.name}': ${e.message}")
+                place
+            }
+        }
+        return response.copy(recommendations = updated)
     }
 
     suspend fun getModels(provider: String, apiKey: String?, endpoint: String?): ProviderModelsResponse {
