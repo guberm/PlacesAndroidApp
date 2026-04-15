@@ -16,6 +16,7 @@ import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 
 sealed class PlacesUiState {
     object Initial : PlacesUiState()
-    object Loading : PlacesUiState()
+    data class Loading(val slowWarning: Boolean = false) : PlacesUiState()
     data class Success(val response: RecommendationResponse) : PlacesUiState()
     data class Error(val message: String) : PlacesUiState()
 }
@@ -46,7 +47,14 @@ class PlacesViewModel : ViewModel() {
         userApiKeys: Map<String, String>? = null
     ) {
         viewModelScope.launch {
-            _uiState.value = PlacesUiState.Loading
+            _uiState.value = PlacesUiState.Loading()
+            // After 15s without a response, show a slow-warning to the user
+            val slowWarningJob = launch {
+                delay(15_000)
+                if (_uiState.value is PlacesUiState.Loading) {
+                    _uiState.value = PlacesUiState.Loading(slowWarning = true)
+                }
+            }
             try {
                 Log.d("PlacesVM", "searchPlaces START query=$query lat=$lat lng=$lng category=$category radius=$radiusMeters max=$maxResults")
                 val startTime = System.currentTimeMillis()
@@ -89,9 +97,11 @@ class PlacesViewModel : ViewModel() {
                 }
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms")
+                slowWarningJob.cancel()
                 _uiState.value = PlacesUiState.Success(enriched)
             } catch (e: Exception) {
                 Log.e("PlacesVM", "searchPlaces ERROR: ${e.javaClass.simpleName} — ${e.message}", e)
+                slowWarningJob.cancel()
                 _uiState.value = PlacesUiState.Error(e.message ?: "An unknown error occurred")
             }
         }

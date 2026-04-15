@@ -32,7 +32,7 @@ interface PlacesApi {
             val client = OkHttpClient.Builder()
                 .addInterceptor(logger)
                 .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(180, TimeUnit.SECONDS)
                 .build()
 
             return Retrofit.Builder()

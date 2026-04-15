@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Environment
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,33 +43,58 @@ import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.ProviderModel
 import kotlinx.coroutines.launch
 
-// ── Log sharing ──────────────────────────────────────────────────────────────
+// ── Log helpers ──────────────────────────────────────────────────────────────
+
+private fun maskKeys(raw: String, keysToMask: Map<String, String>): String {
+    var masked = raw
+    keysToMask.values.filter { it.length >= 6 }.forEach { key ->
+        masked = masked.replace(key, "${key.take(4)}****REDACTED****")
+    }
+    return masked
+}
+
+private fun collectMaskedLog(context: Context, keysToMask: Map<String, String>): String? = try {
+    val raw = Runtime.getRuntime()
+        .exec(arrayOf("logcat", "-d", "-v", "time", "*:D"))
+        .inputStream.bufferedReader().readText()
+    maskKeys(raw, keysToMask)
+} catch (e: Exception) {
+    Log.e("PlacesVM", "collectMaskedLog failed: ${e.message}", e)
+    null
+}
 
 private fun collectAndShareLogs(context: Context, keysToMask: Map<String, String>) {
+    val masked = collectMaskedLog(context, keysToMask) ?: return
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "PlacesApp diagnostic log")
+        putExtra(Intent.EXTRA_TEXT, masked)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share log"))
+}
+
+private fun exportLogsToFile(context: Context, keysToMask: Map<String, String>) {
+    val masked = collectMaskedLog(context, keysToMask) ?: return
     try {
-        val raw = Runtime.getRuntime()
-            .exec(arrayOf("logcat", "-d", "-v", "time", "*:D"))
-            .inputStream.bufferedReader().readText()
-
-        // Mask every non-blank API key value
-        var masked = raw
-        keysToMask.values
-            .filter { it.length >= 6 }
-            .forEach { key ->
-                // keep first 4 chars so the user can identify which key, mask the rest
-                val visible = key.take(4)
-                masked = masked.replace(key, "$visible****REDACTED****")
-            }
-
+        val fileName = "places-log-${System.currentTimeMillis()}.txt"
+        val file = java.io.File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), fileName)
+        file.writeText(masked)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "PlacesApp diagnostic log")
-            putExtra(Intent.EXTRA_TEXT, masked)
+            putExtra(Intent.EXTRA_SUBJECT, "PlacesApp log export")
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Share log"))
+        context.startActivity(Intent.createChooser(intent, "Export log file"))
     } catch (e: Exception) {
-        Log.e("PlacesVM", "collectAndShareLogs failed: ${e.message}", e)
+        Log.e("PlacesVM", "exportLogsToFile failed: ${e.message}", e)
     }
+}
+
+private fun clearLogs() {
+    try { Runtime.getRuntime().exec(arrayOf("logcat", "-c")) }
+    catch (e: Exception) { Log.e("PlacesVM", "clearLogs failed: ${e.message}", e) }
 }
 
 class ThemeColors(isDark: Boolean) {
@@ -239,7 +266,19 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         Crossfade(targetState = uiState, label = "State Animation") { state ->
             when (state) {
                 is PlacesUiState.Initial -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Search for a location to begin.", color = colors.textSec) }
-                is PlacesUiState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = colors.primary) }
+                is PlacesUiState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            CircularProgressIndicator(color = colors.primary)
+                            if (state.slowWarning) {
+                                Text(
+                                    "This is taking longer than usual…\nThe AI is still working on your request.",
+                                    color = colors.textSec,
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
                 is PlacesUiState.Success -> {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                         items(state.response.recommendations) { place -> PlaceCard(place, colors, userLat, userLng) }
@@ -289,11 +328,43 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
         },
         confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = { onSave(localKeys) }) { Text("Save", color = Color.White) } },
         dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val ctx = LocalContext.current
-                TextButton(onClick = { collectAndShareLogs(ctx, localKeys) }) {
-                    Text("Share Logs", color = colors.textSec, fontSize = 12.sp)
+                var logsMenuExpanded by remember { mutableStateOf(false) }
+                var showClearedToast by remember { mutableStateOf(false) }
+
+                Box {
+                    TextButton(onClick = { logsMenuExpanded = true }) {
+                        Text("Logs ▾", color = colors.textSec, fontSize = 12.sp)
+                    }
+                    DropdownMenu(
+                        expanded = logsMenuExpanded,
+                        onDismissRequest = { logsMenuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Share", color = colors.textPrime, fontSize = 13.sp) },
+                            onClick = { logsMenuExpanded = false; collectAndShareLogs(ctx, localKeys) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as file", color = colors.textPrime, fontSize = 13.sp) },
+                            onClick = { logsMenuExpanded = false; exportLogsToFile(ctx, localKeys) }
+                        )
+                        Divider(modifier = Modifier.padding(horizontal = 8.dp), color = colors.pillBg)
+                        DropdownMenuItem(
+                            text = { Text("Clear logs", color = Color(0xFFEF4444), fontSize = 13.sp) },
+                            onClick = { logsMenuExpanded = false; clearLogs(); showClearedToast = true }
+                        )
+                    }
                 }
+
+                if (showClearedToast) {
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(1500)
+                        showClearedToast = false
+                    }
+                    Text("Logs cleared", color = colors.textSec, fontSize = 11.sp)
+                }
+
                 TextButton(onClick = onDismiss) { Text("Cancel", color = colors.textSec) }
             }
         }
