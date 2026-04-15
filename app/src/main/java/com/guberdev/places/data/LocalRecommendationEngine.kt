@@ -118,15 +118,14 @@ class LocalRecommendationEngine {
         return try {
             val encoded = URLEncoder.encode(address, "UTF-8")
             val req = Request.Builder()
-                .url("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=1")
+                .url("https://photon.komoot.io/api/?q=$encoded&limit=1&lang=en")
                 .header("User-Agent", "PlacesApp/1.0 (Android)")
                 .build()
             val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
-            val arr = JSONArray(body)
-            if (arr.length() == 0) return null
-            val obj = arr.getJSONObject(0)
-            val lat = obj.optDouble("lat", Double.NaN)
-            val lon = obj.optDouble("lon", Double.NaN)
+            val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
+            val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
+            val lon = coords.optDouble(0, Double.NaN)
+            val lat = coords.optDouble(1, Double.NaN)
             if (lat.isNaN() || lon.isNaN()) null else Pair(lat, lon)
         } catch (e: Exception) {
             Log.e("LocalEngine", "Geocoding failed: ${e.message}")
@@ -136,25 +135,25 @@ class LocalRecommendationEngine {
 
     // ── Reverse geocoding ─────────────────────────────────────────────────────
 
-    /** Returns "Neighbourhood, City, State, Country" at zoom=14 — richer context for the AI prompt. */
+    /** Returns "Neighbourhood, City, State, Country" — richer context for the AI prompt. */
     internal fun reverseGeocode(lat: Double, lng: Double): String? {
         return try {
             val req = Request.Builder()
-                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=14")
+                .url("https://photon.komoot.io/reverse?lat=$lat&lon=$lng")
                 .header("User-Agent", "PlacesApp/1.0 (Android)")
                 .build()
             val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
-            val obj = JSONObject(body)
-            val addr = obj.optJSONObject("address")
-            val neighbourhood = addr?.optString("neighbourhood")?.takeIf { it.isNotBlank() }
-                ?: addr?.optString("suburb")?.takeIf { it.isNotBlank() }
-                ?: addr?.optString("quarter")?.takeIf { it.isNotBlank() }
-            val city = addr?.optString("city")?.takeIf { it.isNotBlank() }
-                ?: addr?.optString("town")?.takeIf { it.isNotBlank() }
-                ?: addr?.optString("village")?.takeIf { it.isNotBlank() }
-                ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
-            val state = addr?.optString("state")?.takeIf { it.isNotBlank() }
-            val country = addr?.optString("country")?.takeIf { it.isNotBlank() }
+            val props = JSONObject(body).optJSONArray("features")?.optJSONObject(0)
+                ?.optJSONObject("properties") ?: return null
+            val neighbourhood = props.optString("neighbourhood").takeIf { it.isNotBlank() }
+                ?: props.optString("suburb").takeIf { it.isNotBlank() }
+                ?: props.optString("quarter").takeIf { it.isNotBlank() }
+            val city = props.optString("city").takeIf { it.isNotBlank() }
+                ?: props.optString("town").takeIf { it.isNotBlank() }
+                ?: props.optString("village").takeIf { it.isNotBlank() }
+                ?: props.optString("municipality").takeIf { it.isNotBlank() }
+            val state   = props.optString("state").takeIf { it.isNotBlank() }
+            val country = props.optString("country").takeIf { it.isNotBlank() }
             listOfNotNull(neighbourhood, city, state, country).joinToString(", ").takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.e("LocalEngine", "Reverse geocoding failed: ${e.message}")
@@ -162,42 +161,42 @@ class LocalRecommendationEngine {
         }
     }
 
-    /** Address autocomplete — returns up to 5 suggestions for a partial query string. */
+    /** Address autocomplete via Photon — returns up to 5 suggestions for a partial query string. */
     fun searchAddress(query: String): List<AddressSuggestion> {
         return try {
             val encoded = URLEncoder.encode(query, "UTF-8")
             val req = Request.Builder()
-                .url("https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=5&addressdetails=1&accept-language=en")
+                .url("https://photon.komoot.io/api/?q=$encoded&limit=5&lang=en")
                 .header("User-Agent", "PlacesApp/1.0 (Android)")
                 .build()
             val body = client.newCall(req).execute().use { it.body?.string() } ?: return emptyList()
-            val arr = JSONArray(body)
-            (0 until arr.length()).mapNotNull { i ->
+            val features = JSONObject(body).optJSONArray("features") ?: return emptyList()
+            (0 until features.length()).mapNotNull { i ->
                 try {
-                    val obj = arr.getJSONObject(i)
-                    val lat = obj.optDouble("lat", Double.NaN)
-                    val lon = obj.optDouble("lon", Double.NaN)
+                    val feature = features.getJSONObject(i)
+                    val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates")
+                        ?: return@mapNotNull null
+                    val lon = coords.optDouble(0, Double.NaN)
+                    val lat = coords.optDouble(1, Double.NaN)
                     if (lat.isNaN() || lon.isNaN()) return@mapNotNull null
 
-                    val addr = obj.optJSONObject("address")
-                    val house = addr?.optString("house_number")?.takeIf { it.isNotBlank() }
-                    val road  = addr?.optString("road")?.takeIf { it.isNotBlank() }
-                    val city  = addr?.optString("city")?.takeIf { it.isNotBlank() }
-                        ?: addr?.optString("town")?.takeIf { it.isNotBlank() }
-                        ?: addr?.optString("village")?.takeIf { it.isNotBlank() }
-                        ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
-                    val state   = addr?.optString("state")?.takeIf { it.isNotBlank() }
-                    val country = addr?.optString("country")?.takeIf { it.isNotBlank() }
+                    val props  = feature.optJSONObject("properties") ?: return@mapNotNull null
+                    val house  = props.optString("housenumber").takeIf { it.isNotBlank() }
+                    val street = props.optString("street").takeIf { it.isNotBlank() }
+                    val name   = props.optString("name").takeIf { it.isNotBlank() }
+                    val city   = props.optString("city").takeIf { it.isNotBlank() }
+                        ?: props.optString("town").takeIf { it.isNotBlank() }
+                        ?: props.optString("village").takeIf { it.isNotBlank() }
+                    val state   = props.optString("state").takeIf { it.isNotBlank() }
+                    val country = props.optString("country").takeIf { it.isNotBlank() }
 
-                    val street    = listOfNotNull(house, road).joinToString(" ").takeIf { it.isNotBlank() }
-                    val shortLine = listOfNotNull(street, city).joinToString(", ").ifBlank {
-                        obj.optString("display_name").split(",").take(2).joinToString(",").trim()
-                    }
+                    val streetAddr  = listOfNotNull(house, street).joinToString(" ").takeIf { it.isNotBlank() }
+                    val primary     = streetAddr ?: name
+                    val shortLine   = listOfNotNull(primary, city).joinToString(", ").ifBlank { name ?: "" }
                     val secondLine  = listOfNotNull(state, country).joinToString(", ")
-                    val displayName = listOfNotNull(street, city, state, country).joinToString(", ").ifBlank {
-                        obj.optString("display_name").split(",").take(4).joinToString(",").trim()
-                    }
+                    val displayName = listOfNotNull(primary, city, state, country).joinToString(", ")
 
+                    if (displayName.isBlank()) return@mapNotNull null
                     AddressSuggestion(
                         displayName = displayName,
                         shortLine   = shortLine,
@@ -213,25 +212,38 @@ class LocalRecommendationEngine {
         }
     }
 
-    /** Returns full street address — used to fill in missing address on a place card. */
+    /** Returns full street address via Photon — accurate house number + street. */
     internal fun reverseGeocodeAddress(lat: Double, lng: Double): String? {
         return try {
             val req = Request.Builder()
-                .url("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&zoom=18")
+                .url("https://photon.komoot.io/reverse?lat=$lat&lon=$lng")
                 .header("User-Agent", "PlacesApp/1.0 (Android)")
                 .build()
             val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
-            val obj = JSONObject(body)
-            // Use the pre-formatted display_name with road + house number + city
-            val addr = obj.optJSONObject("address") ?: return obj.optString("display_name").takeIf { it.isNotBlank() }
-            val house = addr.optString("house_number").takeIf { it.isNotBlank() }
-            val road = addr.optString("road").takeIf { it.isNotBlank() }
-            val city = addr.optString("city").takeIf { it.isNotBlank() }
-                ?: addr.optString("town").takeIf { it.isNotBlank() }
-                ?: addr.optString("village").takeIf { it.isNotBlank() }
-            val state = addr.optString("state").takeIf { it.isNotBlank() }
-            val street = listOfNotNull(house, road).joinToString(" ").takeIf { it.isNotBlank() }
-            listOfNotNull(street, city, state).joinToString(", ").takeIf { it.isNotBlank() }
+            val props = JSONObject(body).optJSONArray("features")?.optJSONObject(0)
+                ?.optJSONObject("properties") ?: return null
+
+            val house  = props.optString("housenumber").takeIf { it.isNotBlank() }
+            val street = props.optString("street").takeIf { it.isNotBlank() }
+            val name   = props.optString("name").takeIf { it.isNotBlank() }
+            val neighbourhood = props.optString("neighbourhood").takeIf { it.isNotBlank() }
+                ?: props.optString("suburb").takeIf { it.isNotBlank() }
+            val city   = props.optString("city").takeIf { it.isNotBlank() }
+                ?: props.optString("town").takeIf { it.isNotBlank() }
+                ?: props.optString("village").takeIf { it.isNotBlank() }
+            val state   = props.optString("state").takeIf { it.isNotBlank() }
+            val country = props.optString("country").takeIf { it.isNotBlank() }
+
+            val streetAddr = listOfNotNull(house, street).joinToString(" ").takeIf { it.isNotBlank() }
+
+            // With house number → "540 Stream Cres, Oakville, Ontario, Canada"
+            // Without → include neighbourhood for context
+            val parts = if (house != null) {
+                listOfNotNull(streetAddr, city, state, country)
+            } else {
+                listOfNotNull(streetAddr ?: name, neighbourhood, city, state, country)
+            }
+            parts.joinToString(", ").takeIf { it.isNotBlank() }
         } catch (e: Exception) {
             Log.e("LocalEngine", "reverseGeocodeAddress failed: ${e.message}")
             null

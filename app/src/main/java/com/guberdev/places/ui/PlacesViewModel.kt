@@ -172,8 +172,8 @@ class PlacesViewModel : ViewModel() {
     private suspend fun geocodeAddresses(
         response: RecommendationResponse
     ): RecommendationResponse {
-        // Nominatim ToS: max 1 request/second. Process sequentially with a delay.
-        val DELAY_MS = 1100L
+        // Photon (komoot.io) — no strict per-second limit; small delay to stay polite.
+        val DELAY_MS = 200L
         var needDelay = false
         val updated = response.recommendations.map { place ->
             try {
