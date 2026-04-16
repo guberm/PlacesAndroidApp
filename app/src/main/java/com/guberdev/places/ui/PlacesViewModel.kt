@@ -169,6 +169,10 @@ class PlacesViewModel : ViewModel() {
                 } else deduped
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
+                Log.d("PlacesVM", "── Origin: addr='${filtered.resolvedAddress}' lat=${filtered.latitude} lng=${filtered.longitude}")
+                filtered.recommendations.forEachIndexed { i, p ->
+                    Log.d("PlacesVM", "── [${i+1}] '${p.name}' | addr='${p.address}' | lat=${p.latitude} lng=${p.longitude} | verified=${p.coordsVerified}")
+                }
 
                 // Geocode place addresses to get accurate coordinates for distance display
                 val geocoded = geocodeAddresses(filtered)
