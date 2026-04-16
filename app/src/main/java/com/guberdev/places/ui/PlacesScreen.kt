@@ -444,7 +444,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                     val originLat = state.response.latitude.takeIf { it != 0.0 } ?: userLat
                     val originLng = state.response.longitude.takeIf { it != 0.0 } ?: userLng
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng) }
+                        items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng, radius.toInt()) }
                     }
                 }
                 is PlacesUiState.Error -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Error: ${state.message}", color = Color(0xFFEF4444)) }
@@ -733,16 +733,17 @@ fun downloadAndInstallApk(context: android.content.Context, url: String) {
 }
 
 @Composable
-fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null) {
+fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null, requestedRadiusMeters: Int = 0) {
     var showDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val distance = remember(userLat, userLng, place.latitude, place.longitude) {
+    val distanceInfo = remember(userLat, userLng, place.latitude, place.longitude) {
         if (userLat != null && userLng != null && place.latitude != null && place.longitude != null) {
             val results = FloatArray(1)
             android.location.Location.distanceBetween(userLat, userLng, place.latitude, place.longitude, results)
             val d = results[0]
-            if (d < 1000) "${d.toInt()} m" else "${"%,.1f".format(d / 1000)} km"
+            val label = if (d < 1000) "${d.toInt()} m" else "${"%,.1f".format(d / 1000)} km"
+            Pair(label, d)
         } else null
     }
 
@@ -829,7 +830,7 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                 }
                 Spacer(modifier = Modifier.height(6.dp))
             }
-            if (place.address != null || distance != null) {
+            if (place.address != null || distanceInfo != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -841,10 +842,11 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                     Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = place.address ?: "", color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    distance?.let {
+                    distanceInfo?.let { (label, meters) ->
+                        val distColor = if (requestedRadiusMeters > 0 && meters > requestedRadiusMeters) Color(0xFFF59E0B) else colors.primary
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(it, color = colors.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(label, color = distColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Text("straight line", color = colors.textSec, fontSize = 9.sp)
                         }
                     }
