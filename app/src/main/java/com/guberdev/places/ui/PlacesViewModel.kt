@@ -126,7 +126,7 @@ class PlacesViewModel : ViewModel() {
                     recommendations = enriched.recommendations.distinctBy { place ->
                         val nameKey = place.name.trim().lowercase()
                         val addrKey = place.address?.trim()?.lowercase()
-                            ?: "${place.latitude?.let { "%.3f".format(it) }},${place.longitude?.let { "%.3f".format(it) }}"
+                            ?: "${place.latitude?.let { "%.4f".format(it) }},${place.longitude?.let { "%.4f".format(it) }}"
                         "$nameKey|$addrKey"
                     }.also { unique ->
                         val removed = enriched.recommendations.size - unique.size
@@ -206,7 +206,7 @@ class PlacesViewModel : ViewModel() {
                             ?: engine.geocode(place.address)
                         if (coords != null) {
                             Log.d("PlacesVM", "OSM geocoded '${place.name}' → ${coords.first},${coords.second}")
-                            place.copy(latitude = coords.first, longitude = coords.second)
+                            place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
                         } else {
                             // Nominatim failed — fall back to AI coordinates if available
                             Log.w("PlacesVM", "OSM geocode failed for '${place.name}', keeping AI coords")
@@ -299,8 +299,18 @@ class PlacesViewModel : ViewModel() {
                     engine.searchPlaceNearby(place.name, response.latitude, response.longitude)
                 }
                 if (coords != null) {
-                    Log.d("PlacesVM", "Photon place search '${place.name}' → ${coords.first},${coords.second}")
-                    place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
+                    val distResults = FloatArray(1)
+                    android.location.Location.distanceBetween(
+                        response.latitude, response.longitude,
+                        coords.first, coords.second, distResults
+                    )
+                    if (distResults[0] <= 50_000f) {
+                        Log.d("PlacesVM", "Photon place search '${place.name}' → ${coords.first},${coords.second} (${distResults[0].toInt()}m)")
+                        place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
+                    } else {
+                        Log.w("PlacesVM", "Photon returned '${place.name}' at ${(distResults[0]/1000).toInt()}km — ignoring (too far)")
+                        place
+                    }
                 } else place
             } catch (e: Exception) {
                 Log.w("PlacesVM", "Photon enrichment failed for '${place.name}': ${e.message}")
