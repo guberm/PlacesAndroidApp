@@ -161,6 +161,29 @@ class LocalRecommendationEngine {
         }
     }
 
+    /**
+     * Finds a real place by name near [lat]/[lng] — used as fallback when no Google Places key.
+     * Returns verified coordinates from Photon's place index.
+     */
+    internal fun searchPlaceNearby(name: String, lat: Double, lng: Double): Pair<Double, Double>? {
+        return try {
+            val encoded = URLEncoder.encode(name, "UTF-8")
+            val req = Request.Builder()
+                .url("https://photon.komoot.io/api/?q=$encoded&limit=1&lat=$lat&lon=$lng")
+                .header("User-Agent", "PlacesApp/1.0 (Android)")
+                .build()
+            val body = client.newCall(req).execute().use { it.body?.string() } ?: return null
+            val feature = JSONObject(body).optJSONArray("features")?.optJSONObject(0) ?: return null
+            val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
+            val lon2 = coords.optDouble(0, Double.NaN)
+            val lat2 = coords.optDouble(1, Double.NaN)
+            if (lat2.isNaN() || lon2.isNaN()) null else Pair(lat2, lon2)
+        } catch (e: Exception) {
+            Log.e("LocalEngine", "searchPlaceNearby failed for '$name': ${e.message}")
+            null
+        }
+    }
+
     /** Address autocomplete via Photon — returns up to 5 suggestions for a partial query string. */
     fun searchAddress(query: String): List<AddressSuggestion> {
         return try {
