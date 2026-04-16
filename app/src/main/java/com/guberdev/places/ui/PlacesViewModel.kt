@@ -14,6 +14,7 @@ import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
 import android.util.Log
+import com.guberdev.places.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -81,7 +82,7 @@ class PlacesViewModel : ViewModel() {
                 }
             }
             try {
-                Log.d("PlacesVM", "searchPlaces START query=$query lat=$lat lng=$lng category=$category radius=$radiusMeters max=$maxResults")
+                Log.d("PlacesVM", "[v${BuildConfig.VERSION_NAME}] searchPlaces START query=$query lat=$lat lng=$lng category=$category radius=$radiusMeters max=$maxResults")
                 val startTime = System.currentTimeMillis()
                 var finalLat = lat
                 var finalLng = lng
@@ -169,13 +170,14 @@ class PlacesViewModel : ViewModel() {
                 } else deduped
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
-                Log.d("PlacesVM", "── Origin: addr='${filtered.resolvedAddress}' lat=${filtered.latitude} lng=${filtered.longitude}")
-                filtered.recommendations.forEachIndexed { i, p ->
-                    Log.d("PlacesVM", "── [${i+1}] '${p.name}' | addr='${p.address}' | lat=${p.latitude} lng=${p.longitude} | verified=${p.coordsVerified}")
-                }
 
                 // Geocode place addresses to get accurate coordinates for distance display
                 val geocoded = geocodeAddresses(filtered)
+
+                Log.d("PlacesVM", "── Origin: addr='${geocoded.resolvedAddress}' lat=${geocoded.latitude} lng=${geocoded.longitude}")
+                geocoded.recommendations.forEachIndexed { i, p ->
+                    Log.d("PlacesVM", "── [${i+1}] '${p.name}' | addr='${p.address}' | lat=${p.latitude} lng=${p.longitude} | verified=${p.coordsVerified}")
+                }
 
                 slowWarningJob.cancel()
                 _uiState.value = PlacesUiState.Success(geocoded)
