@@ -192,10 +192,10 @@ class PlacesViewModel : ViewModel() {
         val updated = response.recommendations.map { place ->
             try {
                 when {
-                    // Already has verified coords from enrichment (Google or Photon) — skip re-geocoding.
-                    !place.address.isNullOrBlank() && place.latitude != null && place.longitude != null -> place
+                    // Coords already verified by Google or Photon enrichment — skip re-geocoding.
+                    place.coordsVerified -> place
 
-                    // Has address but no verified coords — geocode via Photon for accurate coordinates.
+                    // Has address but AI-provided coords — geocode via Photon for accurate coordinates.
                     !place.address.isNullOrBlank() -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
                         val coords = engine.geocode("${place.name}, ${place.address}")
@@ -272,7 +272,8 @@ class PlacesViewModel : ViewModel() {
                             // Override AI coordinates with Google-verified real-world location
                             latitude  = gp.location?.latitude ?: place.latitude,
                             longitude = gp.location?.longitude ?: place.longitude,
-                            address   = gp.formattedAddress ?: place.address
+                            address   = gp.formattedAddress ?: place.address,
+                            coordsVerified = gp.location != null
                         )
                     } else place
                 } catch (e: Exception) {
@@ -295,7 +296,7 @@ class PlacesViewModel : ViewModel() {
                 }
                 if (coords != null) {
                     Log.d("PlacesVM", "Photon place search '${place.name}' → ${coords.first},${coords.second}")
-                    place.copy(latitude = coords.first, longitude = coords.second)
+                    place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
                 } else place
             } catch (e: Exception) {
                 Log.w("PlacesVM", "Photon enrichment failed for '${place.name}': ${e.message}")

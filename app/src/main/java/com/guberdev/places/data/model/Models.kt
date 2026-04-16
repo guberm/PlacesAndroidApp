@@ -37,7 +37,8 @@ data class PlaceRecommendation(
     val whyRecommended: String?,
     val rating: Double? = null,
     val userRatingsTotal: Int? = null,
-    val websiteUri: String? = null
+    val websiteUri: String? = null,
+    val coordsVerified: Boolean = false
 )
 
 data class ProviderModel(
