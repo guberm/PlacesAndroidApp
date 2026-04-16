@@ -153,9 +153,10 @@ class PlacesViewModel : ViewModel() {
                         keep
                     }.map { it.first }
 
-                    if (within.isEmpty() && withDist.any { it.first.latitude != null }) {
-                        // AI returned nothing nearby — fall back to the closest maxResults, sorted by distance
-                        Log.w("PlacesVM", "Radius filter removed all results — falling back to closest $maxResults")
+                    val minRequired = minOf(5, maxResults)
+                    if (within.size < minRequired && withDist.any { it.first.latitude != null }) {
+                        // Too few within radius — fall back to the closest maxResults, sorted by distance
+                        Log.w("PlacesVM", "Radius filter left only ${within.size}/${minRequired} required — falling back to closest $maxResults")
                         val closest = withDist
                             .filter { it.first.latitude != null }
                             .sortedBy { it.second }
