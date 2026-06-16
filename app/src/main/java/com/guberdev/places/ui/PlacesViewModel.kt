@@ -3,23 +3,13 @@ package com.guberdev.places.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.guberdev.places.data.LocalRecommendationEngine
-import com.guberdev.places.data.api.GooglePlacesApi
-import com.guberdev.places.data.api.GpCircle
-import com.guberdev.places.data.api.GpLatLng
-import com.guberdev.places.data.api.GpLocationBias
-import com.guberdev.places.data.api.GpTextSearchRequest
 import com.guberdev.places.data.model.AddressSuggestion
-import com.guberdev.places.data.model.PlaceRecommendation
-import com.guberdev.places.data.model.ProviderModelsResponse
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
 import android.util.Log
 import com.guberdev.places.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +26,6 @@ sealed class PlacesUiState {
 
 class PlacesViewModel : ViewModel() {
     private val engine = LocalRecommendationEngine()
-    private val googlePlacesApi = GooglePlacesApi.create()
 
     private val _uiState = MutableStateFlow<PlacesUiState>(PlacesUiState.Initial)
     val uiState: StateFlow<PlacesUiState> = _uiState.asStateFlow()
@@ -69,8 +58,7 @@ class PlacesViewModel : ViewModel() {
         category: String,
         radiusMeters: Int = 1000,
         maxResults: Int = 10,
-        forceRefresh: Boolean = false,
-        userApiKeys: Map<String, String>? = null
+        forceRefresh: Boolean = false
     ) {
         viewModelScope.launch {
             _uiState.value = PlacesUiState.Loading()
@@ -108,21 +96,15 @@ class PlacesViewModel : ViewModel() {
                     categories = listOf(category),
                     maxResults = maxResults,
                     radiusMeters = radiusMeters,
-                    forceRefresh = forceRefresh,
-                    userApiKeys = userApiKeys
+                    forceRefresh = forceRefresh
                 )
                 Log.d("PlacesVM", "engine.recommend sending request: $request")
-                val response = engine.recommend(request, userApiKeys ?: emptyMap())
+                val response = engine.recommend(request)
                 Log.d("PlacesVM", "engine.recommend OK in ${System.currentTimeMillis() - startTime}ms — ${response.recommendations.size} results")
 
-                val googleApiKey = userApiKeys?.get("GooglePlaces")?.takeIf { it.isNotBlank() }
-                val enriched = if (googleApiKey != null) {
-                    enrichWithGoogleRatings(response, googleApiKey)
-                } else {
-                    enrichWithPhoton(response)
-                }
+                val enriched = response
 
-                // Deduplicate: after Google enrichment multiple AI results may resolve to the same real place.
+                // Deduplicate OSM nodes/ways/relations that describe the same place.
                 val deduped = enriched.copy(
                     recommendations = enriched.recommendations.distinctBy { place ->
                         val nameKey = place.name.trim().lowercase()
@@ -248,81 +230,4 @@ class PlacesViewModel : ViewModel() {
                     engine.reverseGeocodeAddress(lat, lng)
                 }
         }
-
-    private suspend fun enrichWithGoogleRatings(
-        response: RecommendationResponse,
-        apiKey: String
-    ): RecommendationResponse = coroutineScope {
-        // Use the user's actual origin as location bias — not AI coordinates which may be hallucinated.
-        // Radius 10km ensures we find the real place even if AI put it in the wrong spot.
-        val originBias = GpLocationBias(GpCircle(GpLatLng(response.latitude, response.longitude), 10_000.0))
-
-        val enriched = response.recommendations.map { place ->
-            async {
-                try {
-                    val result = googlePlacesApi.searchText(
-                        apiKey = apiKey,
-                        fieldMask = "places.id,places.rating,places.userRatingCount,places.websiteUri,places.location,places.formattedAddress",
-                        request = GpTextSearchRequest(
-                            textQuery = place.name,
-                            locationBias = originBias,
-                            maxResultCount = 1
-                        )
-                    )
-                    val gp = result.places?.firstOrNull()
-                    if (gp != null) {
-                        place.copy(
-                            rating           = gp.rating ?: place.rating,
-                            userRatingsTotal = gp.userRatingCount ?: place.userRatingsTotal,
-                            websiteUri       = gp.websiteUri ?: place.websiteUri,
-                            // Override AI coordinates with Google-verified real-world location
-                            latitude  = gp.location?.latitude ?: place.latitude,
-                            longitude = gp.location?.longitude ?: place.longitude,
-                            address   = gp.formattedAddress ?: place.address,
-                            coordsVerified = gp.location != null
-                        )
-                    } else place
-                } catch (e: Exception) {
-                    Log.w("PlacesVM", "enrichWithGoogleRatings FAILED for '${place.name}': ${e.javaClass.simpleName} — ${e.message}")
-                    place
-                }
-            }
-        }.awaitAll()
-        response.copy(recommendations = enriched)
-    }
-
-    private suspend fun enrichWithPhoton(response: RecommendationResponse): RecommendationResponse {
-        val DELAY_MS = 200L
-        var needDelay = false
-        val updated = response.recommendations.map { place ->
-            try {
-                if (needDelay) delay(DELAY_MS) else needDelay = true
-                val coords = withContext(Dispatchers.IO) {
-                    engine.searchPlaceNearby(place.name, response.latitude, response.longitude)
-                }
-                if (coords != null) {
-                    val distResults = FloatArray(1)
-                    android.location.Location.distanceBetween(
-                        response.latitude, response.longitude,
-                        coords.first, coords.second, distResults
-                    )
-                    if (distResults[0] <= 50_000f) {
-                        Log.d("PlacesVM", "Photon place search '${place.name}' → ${coords.first},${coords.second} (${distResults[0].toInt()}m)")
-                        place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
-                    } else {
-                        Log.w("PlacesVM", "Photon returned '${place.name}' at ${(distResults[0]/1000).toInt()}km — ignoring (too far)")
-                        place
-                    }
-                } else place
-            } catch (e: Exception) {
-                Log.w("PlacesVM", "Photon enrichment failed for '${place.name}': ${e.message}")
-                place
-            }
-        }
-        return response.copy(recommendations = updated)
-    }
-
-    suspend fun getModels(provider: String, apiKey: String?, endpoint: String?): ProviderModelsResponse {
-        return engine.getModels(provider, apiKey, endpoint)
-    }
 }

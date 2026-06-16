@@ -43,7 +43,6 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
-import com.guberdev.places.data.model.ProviderModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -88,7 +87,7 @@ private fun maskKeys(raw: String, keysToMask: Map<String, String>): String {
     return masked
 }
 
-private fun collectMaskedLog(context: Context, keysToMask: Map<String, String>): String? = try {
+private fun collectMaskedLog(keysToMask: Map<String, String>): String? = try {
     val raw = Runtime.getRuntime()
         .exec(arrayOf("logcat", "-d", "-v", "time", "*:D"))
         .inputStream.bufferedReader().readText()
@@ -99,7 +98,7 @@ private fun collectMaskedLog(context: Context, keysToMask: Map<String, String>):
 }
 
 private fun collectAndShareLogs(context: Context, keysToMask: Map<String, String>) {
-    val masked = collectMaskedLog(context, keysToMask) ?: return
+    val masked = collectMaskedLog(keysToMask) ?: return
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(Intent.EXTRA_SUBJECT, "PlacesApp diagnostic log")
@@ -109,7 +108,7 @@ private fun collectAndShareLogs(context: Context, keysToMask: Map<String, String
 }
 
 private fun exportLogsToFile(context: Context, keysToMask: Map<String, String>) {
-    val masked = collectMaskedLog(context, keysToMask) ?: return
+    val masked = collectMaskedLog(keysToMask) ?: return
     try {
         val fileName = "places-log-${System.currentTimeMillis()}.txt"
         val file = java.io.File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), fileName)
@@ -130,40 +129,6 @@ private fun exportLogsToFile(context: Context, keysToMask: Map<String, String>) 
 private fun clearLogs() {
     try { Runtime.getRuntime().exec(arrayOf("logcat", "-c")) }
     catch (e: Exception) { Log.e("PlacesVM", "clearLogs failed: ${e.message}", e) }
-}
-
-// ── Settings import / export ──────────────────────────────────────────
-
-private fun exportKeysToJson(context: Context, keys: Map<String, String>) {
-    try {
-        val json = org.json.JSONObject()
-        keys.forEach { (k, v) -> if (v.isNotBlank()) json.put(k, v) }
-        val fileName = "places-settings-${System.currentTimeMillis()}.json"
-        val file = java.io.File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), fileName)
-        file.writeText(json.toString(2))
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
-            putExtra(Intent.EXTRA_SUBJECT, "PlacesApp settings")
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(intent, "Export settings"))
-    } catch (e: Exception) {
-        Log.e("PlacesVM", "exportKeysToJson failed: ${e.message}", e)
-    }
-}
-
-private fun parseKeysFromJson(context: Context, uri: Uri): Map<String, String>? {
-    return try {
-        val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-            ?: return null
-        val json = org.json.JSONObject(text)
-        buildMap { json.keys().forEach { key -> put(key, json.getString(key)) } }
-    } catch (e: Exception) {
-        Log.e("PlacesVM", "parseKeysFromJson failed: ${e.message}", e)
-        null
-    }
 }
 
 class ThemeColors(isDark: Boolean) {
@@ -197,14 +162,6 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
-    var userApiKeys by remember {
-        val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
-        val saved = prefs.all
-            .filter { it.key.startsWith("api_key_") }
-            .mapKeys { it.key.removePrefix("api_key_") }
-            .mapValues { it.value as? String ?: "" }
-        mutableStateOf<Map<String, String>>(saved)
-    }
     var showSettings by remember { mutableStateOf(false) }
     var pendingUpdate by remember { mutableStateOf<com.guberdev.places.data.UpdateInfo?>(null) }
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -249,15 +206,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val colors = ThemeColors(isDarkTheme)
 
     if (showSettings) {
-        SettingsDialog(colors, viewModel, userApiKeys, onDismiss = { showSettings = false }) { updatedKeys ->
-            userApiKeys = updatedKeys
-            val prefs = context.getSharedPreferences("places_prefs", Context.MODE_PRIVATE)
-            prefs.edit().apply {
-                prefs.all.keys.filter { it.startsWith("api_key_") }.forEach { remove(it) }
-                updatedKeys.forEach { (k, v) -> if (v.isNotBlank()) putString("api_key_$k", v) }
-            }.apply()
-            showSettings = false
-        }
+        SettingsDialog(colors, onDismiss = { showSettings = false })
     }
 
     // Auto-fetch location + check for updates on launch
@@ -298,7 +247,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Discover Places", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = colors.textPrime))
-                Text("Find the best spots curated by AI.", style = MaterialTheme.typography.bodyMedium.copy(color = colors.textSec))
+                Text("Find real nearby places from OpenStreetMap.", style = MaterialTheme.typography.bodyMedium.copy(color = colors.textSec))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = colors.textSec) }
@@ -411,7 +360,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             onClick = {
                 if (searchQuery.isNotEmpty() || (userLat != null && userLng != null)) {
                     viewModel.clearSuggestions()
-                    viewModel.searchPlaces(searchQuery, userLat, userLng, selectedCategory, radius.toInt(), maxResults, forceRefresh, userApiKeys.takeIf { it.isNotEmpty() })
+                    viewModel.searchPlaces(searchQuery, userLat, userLng, selectedCategory, radius.toInt(), maxResults, forceRefresh)
                 }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -431,7 +380,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                             CircularProgressIndicator(color = colors.primary)
                             if (state.slowWarning) {
                                 Text(
-                                    "This is taking longer than usual…\nThe AI is still working on your request.",
+                                    "This is taking longer than usual…\nOpenStreetMap is still working on your request.",
                                     color = colors.textSec,
                                     fontSize = 13.sp,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -455,19 +404,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys: Map<String, String>, onDismiss: () -> Unit, onSave: (Map<String, String>) -> Unit) {
-    var localKeys by remember { mutableStateOf(initialKeys.toMap()) }
-    val providers = listOf("OpenRouter", "OpenAI", "Anthropic", "Gemini", "AzureOpenAI")
-    val ctx = LocalContext.current
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            parseKeysFromJson(ctx, it)?.let { imported -> localKeys = localKeys + imported }
-        }
-    }
-
+fun SettingsDialog(colors: ThemeColors, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
@@ -476,55 +413,17 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
         title = { Text("Settings", color = colors.textPrime, fontWeight = FontWeight.Bold) },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                items(providers) { provider ->
-                    ProviderSettingsItem(colors, viewModel, provider, localKeys) { k, v ->
-                        localKeys = localKeys + (k to v)
-                    }
-                }
                 item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Google Places", color = colors.textPrime, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Enables real ratings, review counts & website links for each result", color = colors.textSec, fontSize = 11.sp)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = localKeys["GooglePlaces"] ?: "",
-                            onValueChange = { localKeys = localKeys + ("GooglePlaces" to it) },
-                            placeholder = { Text("API Key", color = colors.textSec) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime)
-                        )
-                    }
+                    Text("Search uses OpenStreetMap and does not need API keys.", color = colors.textSec, fontSize = 13.sp)
                 }
             }
         },
-        confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = { onSave(localKeys) }) { Text("Save", color = Color.White) } },
+        confirmButton = { Button(colors = ButtonDefaults.buttonColors(containerColor = colors.primary), onClick = onDismiss) { Text("Close", color = Color.White) } },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val ctx = LocalContext.current
                 var logsMenuExpanded by remember { mutableStateOf(false) }
-                var keysMenuExpanded by remember { mutableStateOf(false) }
                 var showClearedToast by remember { mutableStateOf(false) }
-
-                // Keys dropdown
-                Box {
-                    TextButton(onClick = { keysMenuExpanded = true }) {
-                        Text("Keys ▾", color = colors.textSec, fontSize = 12.sp)
-                    }
-                    DropdownMenu(
-                        expanded = keysMenuExpanded,
-                        onDismissRequest = { keysMenuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Export to JSON", color = colors.textPrime, fontSize = 13.sp) },
-                            onClick = { keysMenuExpanded = false; exportKeysToJson(ctx, localKeys) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Import from JSON", color = colors.textPrime, fontSize = 13.sp) },
-                            onClick = { keysMenuExpanded = false; importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
-                        )
-                    }
-                }
 
                 // Logs dropdown
                 Box {
@@ -537,11 +436,11 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
                     ) {
                         DropdownMenuItem(
                             text = { Text("Share", color = colors.textPrime, fontSize = 13.sp) },
-                            onClick = { logsMenuExpanded = false; collectAndShareLogs(ctx, localKeys) }
+                            onClick = { logsMenuExpanded = false; collectAndShareLogs(ctx, emptyMap()) }
                         )
                         DropdownMenuItem(
                             text = { Text("Export as file", color = colors.textPrime, fontSize = 13.sp) },
-                            onClick = { logsMenuExpanded = false; exportLogsToFile(ctx, localKeys) }
+                            onClick = { logsMenuExpanded = false; exportLogsToFile(ctx, emptyMap()) }
                         )
                         Divider(modifier = Modifier.padding(horizontal = 8.dp), color = colors.pillBg)
                         DropdownMenuItem(
@@ -563,97 +462,6 @@ fun SettingsDialog(colors: ThemeColors, viewModel: PlacesViewModel, initialKeys:
             }
         }
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ProviderSettingsItem(colors: ThemeColors, viewModel: PlacesViewModel, provider: String, keys: Map<String, String>, onUpdate: (String, String) -> Unit) {
-    var apiKey by remember { mutableStateOf(keys[provider] ?: "") }
-    var endpoint by remember { mutableStateOf(keys["AzureOpenAIEndpoint"] ?: "") }
-    var selectedModelId by remember { mutableStateOf(keys["${provider}Model"] ?: "") }
-    
-    var loadedModels by remember { mutableStateOf<List<ProviderModel>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var expanded by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(provider, color = colors.textPrime, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it.trim(); onUpdate(provider, apiKey) },
-            placeholder = { Text("API Key (leave blank for server default)", color = colors.textSec, fontSize = 12.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime)
-        )
-        
-        if (provider == "AzureOpenAI") {
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = endpoint,
-                onValueChange = { endpoint = it.trim(); onUpdate("AzureOpenAIEndpoint", endpoint) },
-                placeholder = { Text("Endpoint URL", color = colors.textSec) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = selectedModelId,
-                    onValueChange = {},
-                    readOnly = true,
-                    placeholder = { Text("Model (default)", color = colors.textSec, fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = colors.textPrime, unfocusedTextColor = colors.textPrime)
-                )
-                if (loadedModels.isNotEmpty()) {
-                    Box(modifier = Modifier.matchParentSize().clickable { expanded = true })
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    scope.launch {
-                        isLoading = true
-                        errorMsg = null
-                        try {
-                            val res = viewModel.getModels(provider, apiKey.takeIf { it.isNotBlank() }, endpoint.takeIf { it.isNotBlank() })
-                            loadedModels = res.models
-                            errorMsg = res.warning
-                        } catch(e: Exception) {
-                            errorMsg = e.message
-                        } finally { isLoading = false }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = colors.scoreBg)
-            ) {
-                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.primary)
-                else Text("Get Models", fontSize = 12.sp, color = colors.primary)
-            }
-        }
-        
-        if (errorMsg != null) {
-            Text(errorMsg!!, color = Color.Red, fontSize = 10.sp)
-        }
-        
-        if (expanded) {
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(colors.container)) {
-                loadedModels.forEach { model ->
-                    DropdownMenuItem(text = { Text(model.name, color = colors.textPrime) }, onClick = {
-                        selectedModelId = model.id
-                        onUpdate("${provider}Model", model.id)
-                        expanded = false
-                    })
-                }
-            }
-        }
-    }
 }
 
 @Composable

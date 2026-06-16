@@ -1,7 +1,5 @@
 package com.guberdev.places.data.model
 
-import com.google.gson.annotations.SerializedName
-
 data class RecommendationRequest(
     val latitude: Double? = null,
     val longitude: Double? = null,
@@ -9,8 +7,7 @@ data class RecommendationRequest(
     val categories: List<String> = listOf("All"),
     val maxResults: Int = 10,
     val radiusMeters: Int = 1000,
-    val forceRefresh: Boolean = false,
-    val userApiKeys: Map<String, String>? = null
+    val forceRefresh: Boolean = false
 )
 
 data class RecommendationResponse(
@@ -39,16 +36,6 @@ data class PlaceRecommendation(
     val userRatingsTotal: Int? = null,
     val websiteUri: String? = null,
     val coordsVerified: Boolean = false
-)
-
-data class ProviderModel(
-    val id: String,
-    val name: String
-)
-
-data class ProviderModelsResponse(
-    val models: List<ProviderModel>,
-    val warning: String?
 )
 
 data class AddressSuggestion(
