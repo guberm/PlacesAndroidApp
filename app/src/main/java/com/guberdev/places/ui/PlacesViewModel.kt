@@ -56,6 +56,7 @@ class PlacesViewModel : ViewModel() {
         lat: Double?,
         lng: Double?,
         category: String,
+        subcategory: String? = null,
         radiusMeters: Int = 1000,
         maxResults: Int = 10,
         forceRefresh: Boolean = false
@@ -94,6 +95,7 @@ class PlacesViewModel : ViewModel() {
                     latitude = finalLat,
                     longitude = finalLng,
                     categories = listOf(category),
+                    subcategory = subcategory,
                     maxResults = maxResults,
                     radiusMeters = radiusMeters,
                     forceRefresh = forceRefresh
@@ -117,13 +119,16 @@ class PlacesViewModel : ViewModel() {
                     }
                 )
 
+                // Geocode place addresses first so Google scraper results can show distance.
+                val geocoded = geocodeAddresses(deduped)
+
                 // Hard-filter: remove places whose coordinates fall outside the requested radius.
                 val filtered = if (radiusMeters > 0) {
                     val distResults = FloatArray(1)
-                    val withDist = deduped.recommendations.map { place ->
+                    val withDist = geocoded.recommendations.map { place ->
                         if (place.latitude != null && place.longitude != null) {
                             android.location.Location.distanceBetween(
-                                deduped.latitude, deduped.longitude,
+                                geocoded.latitude, geocoded.longitude,
                                 place.latitude, place.longitude,
                                 distResults
                             )
@@ -136,21 +141,18 @@ class PlacesViewModel : ViewModel() {
                         keep
                     }.map { it.first }
 
-                    deduped.copy(recommendations = within)
-                } else deduped
+                    geocoded.copy(recommendations = within)
+                } else geocoded
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
 
-                // Geocode place addresses to get accurate coordinates for distance display
-                val geocoded = geocodeAddresses(filtered)
-
                 Log.d("PlacesVM", "── Origin: addr='${geocoded.resolvedAddress}' lat=${geocoded.latitude} lng=${geocoded.longitude}")
-                geocoded.recommendations.forEachIndexed { i, p ->
+                filtered.recommendations.forEachIndexed { i, p ->
                     Log.d("PlacesVM", "── [${i+1}] '${p.name}' | addr='${p.address}' | lat=${p.latitude} lng=${p.longitude} | verified=${p.coordsVerified}")
                 }
 
                 slowWarningJob.cancel()
-                _uiState.value = PlacesUiState.Success(geocoded)
+                _uiState.value = PlacesUiState.Success(filtered)
             } catch (e: Exception) {
                 Log.e("PlacesVM", "searchPlaces ERROR: ${e.javaClass.simpleName} — ${e.message}", e)
                 slowWarningJob.cancel()
@@ -162,26 +164,28 @@ class PlacesViewModel : ViewModel() {
     private suspend fun geocodeAddresses(
         response: RecommendationResponse
     ): RecommendationResponse {
-        // Photon (komoot.io) — no strict per-second limit; small delay to stay polite.
-        val DELAY_MS = 200L
+        // Photon is usually fast; Nominatim fallback needs a polite pace.
+        val DELAY_MS = 1_000L
         var needDelay = false
         val updated = response.recommendations.map { place ->
             try {
                 when {
-                    // Coords already verified by Google or Photon enrichment — skip re-geocoding.
+                    // Coords already verified by OSM/Photon enrichment — skip re-geocoding.
                     place.coordsVerified -> place
 
                     // Has address but AI-provided coords — geocode via Photon for accurate coordinates.
                     !place.address.isNullOrBlank() -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
-                        val coords = engine.geocode("${place.name}, ${place.address}")
-                            ?: engine.geocode(place.address)
+                        val coords = withContext(Dispatchers.IO) {
+                            engine.geocode("${place.name}, ${place.address}")
+                                ?: engine.geocode(place.address)
+                        }
                         if (coords != null) {
-                            Log.d("PlacesVM", "OSM geocoded '${place.name}' → ${coords.first},${coords.second}")
+                            Log.d("PlacesVM", "Geocoded '${place.name}' → ${coords.first},${coords.second}")
                             place.copy(latitude = coords.first, longitude = coords.second, coordsVerified = true)
                         } else {
                             // Nominatim failed — fall back to AI coordinates if available
-                            Log.w("PlacesVM", "OSM geocode failed for '${place.name}', keeping AI coords")
+                            Log.w("PlacesVM", "Geocode failed for '${place.name}', keeping existing coords")
                             place
                         }
                     }
@@ -189,9 +193,11 @@ class PlacesViewModel : ViewModel() {
                     // Has only coordinates — reverse-geocode for address display
                     place.latitude != null && place.longitude != null -> {
                         if (needDelay) delay(DELAY_MS) else needDelay = true
-                        val addr = engine.reverseGeocodeAddress(place.latitude, place.longitude)
+                        val addr = withContext(Dispatchers.IO) {
+                            engine.reverseGeocodeAddress(place.latitude, place.longitude)
+                        }
                         if (addr != null) {
-                            Log.d("PlacesVM", "OSM reverse-geocoded '${place.name}' → $addr")
+                        Log.d("PlacesVM", "Reverse-geocoded '${place.name}' → $addr")
                             place.copy(address = addr)
                         } else place
                     }
@@ -199,7 +205,7 @@ class PlacesViewModel : ViewModel() {
                     else -> place
                 }
             } catch (e: Exception) {
-                Log.w("PlacesVM", "OSM geocode FAILED for '${place.name}': ${e.message}")
+                Log.w("PlacesVM", "Geocode FAILED for '${place.name}': ${e.message}")
                 place
             }
         }

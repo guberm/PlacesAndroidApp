@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+
+fun String.gradleStringLiteral(): String =
+    replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.guberdev.places"
@@ -11,8 +21,12 @@ android {
         applicationId = "com.guberdev.places"
         minSdk = 24
         targetSdk = 34
-        versionCode = 29
-        versionName = "1.28"
+        versionCode = 30
+        versionName = "1.29"
+        val placesApiKey = localProperties.getProperty("placesApiKey")
+            ?: System.getenv("PLACES_API_KEY")
+            ?: ""
+        buildConfigField("String", "PLACES_API_KEY", "\"${placesApiKey.gradleStringLiteral()}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

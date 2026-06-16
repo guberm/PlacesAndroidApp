@@ -5,6 +5,7 @@ data class RecommendationRequest(
     val longitude: Double? = null,
     val address: String? = null,
     val categories: List<String> = listOf("All"),
+    val subcategory: String? = null,
     val maxResults: Int = 10,
     val radiusMeters: Int = 1000,
     val forceRefresh: Boolean = false
@@ -34,6 +35,7 @@ data class PlaceRecommendation(
     val whyRecommended: String?,
     val rating: Double? = null,
     val userRatingsTotal: Int? = null,
+    val phoneNumber: String? = null,
     val websiteUri: String? = null,
     val coordsVerified: Boolean = false
 )

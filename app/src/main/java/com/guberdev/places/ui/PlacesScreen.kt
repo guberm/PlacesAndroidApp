@@ -149,6 +149,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     val suggestions by viewModel.suggestions.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var selectedSubcategory by remember { mutableStateOf("Any") }
     
     // New parameters 
     var radius by remember { mutableStateOf(1000f) }
@@ -203,7 +204,12 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
     }
 
     val categories = listOf("All", "Restaurant", "Cafe", "TouristAttraction", "Museum", "Park", "Bar", "Hotel", "Shopping", "Entertainment")
+    val subcategories = subcategoriesFor(selectedCategory)
     val colors = ThemeColors(isDarkTheme)
+
+    LaunchedEffect(selectedCategory) {
+        selectedSubcategory = "Any"
+    }
 
     if (showSettings) {
         SettingsDialog(colors, onDismiss = { showSettings = false })
@@ -247,7 +253,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Discover Places", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, color = colors.textPrime))
-                Text("Find real nearby places from OpenStreetMap.", style = MaterialTheme.typography.bodyMedium.copy(color = colors.textSec))
+                Text("Find real nearby places from Google Maps.", style = MaterialTheme.typography.bodyMedium.copy(color = colors.textSec))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = colors.textSec) }
@@ -321,6 +327,27 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             }
         }
 
+        AnimatedVisibility(visible = subcategories.isNotEmpty()) {
+            Column {
+                Spacer(modifier = Modifier.height(10.dp))
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                ) {
+                    subcategories.forEach { type ->
+                        CategoryChip(
+                            text = type,
+                            isSelected = type == selectedSubcategory,
+                            colors = colors,
+                            onClick = { selectedSubcategory = type }
+                        )
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -360,7 +387,16 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
             onClick = {
                 if (searchQuery.isNotEmpty() || (userLat != null && userLng != null)) {
                     viewModel.clearSuggestions()
-                    viewModel.searchPlaces(searchQuery, userLat, userLng, selectedCategory, radius.toInt(), maxResults, forceRefresh)
+                    viewModel.searchPlaces(
+                        query = searchQuery,
+                        lat = userLat,
+                        lng = userLng,
+                        category = selectedCategory,
+                        subcategory = selectedSubcategory.takeIf { subcategories.isNotEmpty() && it != "Any" },
+                        radiusMeters = radius.toInt(),
+                        maxResults = maxResults,
+                        forceRefresh = forceRefresh
+                    )
                 }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -380,7 +416,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                             CircularProgressIndicator(color = colors.primary)
                             if (state.slowWarning) {
                                 Text(
-                                    "This is taking longer than usual…\nOpenStreetMap is still working on your request.",
+                                    "This is taking longer than usual…\nPlaces data is still loading.",
                                     color = colors.textSec,
                                     fontSize = 13.sp,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -398,7 +434,7 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                         }
                     } else {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                            items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng, radius.toInt()) }
+                            items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng) }
                         }
                     }
                 }
@@ -420,7 +456,7 @@ fun SettingsDialog(colors: ThemeColors, onDismiss: () -> Unit) {
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item {
-                    Text("Search uses OpenStreetMap and does not need API keys.", color = colors.textSec, fontSize = 13.sp)
+                    Text("Search uses your Places API with OpenStreetMap fallback.", color = colors.textSec, fontSize = 13.sp)
                 }
             }
         },
@@ -478,6 +514,19 @@ fun CategoryChip(text: String, isSelected: Boolean, colors: ThemeColors, onClick
     Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(bgColor).clickable { onClick() }.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         Text(text = label, color = textColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
     }
+}
+
+private fun subcategoriesFor(category: String): List<String> = when (category) {
+    "Restaurant" -> listOf("Any", "Sushi", "Japanese", "Indian", "Chinese", "Pizza", "Burgers", "Mexican", "Italian", "Thai", "Middle Eastern", "Seafood", "Steakhouse", "Vegetarian", "Breakfast", "Fast Food", "BBQ", "Sandwich")
+    "Cafe" -> listOf("Any", "Coffee", "Tea", "Bakery", "Breakfast", "Dessert", "Work Friendly", "Patio")
+    "TouristAttraction" -> listOf("Any", "Kids", "Romantic", "Sport", "Nature", "Historic", "Viewpoints", "Tours", "Free")
+    "Museum" -> listOf("Any", "Art", "History", "Science", "Kids", "Gallery", "Local")
+    "Park" -> listOf("Any", "Playground", "Trail", "Picnic", "Dog Park", "Sports", "Waterfront", "Garden")
+    "Bar" -> listOf("Any", "Pub", "Cocktail", "Wine", "Sports Bar", "Live Music", "Brewery", "Patio")
+    "Hotel" -> listOf("Any", "Budget", "Family", "Romantic", "Luxury", "Pet Friendly", "Pool", "Spa")
+    "Shopping" -> listOf("Any", "Mall", "Grocery", "Pharmacy", "Clothing", "Electronics", "Market", "Outlet")
+    "Entertainment" -> listOf("Any", "Kids", "Romantic", "Sport", "Cinema", "Theatre", "Arcade", "Bowling", "Live Music", "Nightlife")
+    else -> emptyList()
 }
 
 @Composable
@@ -547,7 +596,21 @@ fun downloadAndInstallApk(context: android.content.Context, url: String) {
 }
 
 @Composable
-fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null, requestedRadiusMeters: Int = 0) {
+fun PlaceDetailLine(label: String, value: String, colors: ThemeColors, clickable: Boolean = false, onClick: () -> Unit = {}) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (clickable) Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() } else Modifier)
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text("$label:", color = colors.textSec, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(68.dp))
+        Text(value, color = colors.textPrime.copy(alpha = 0.85f), fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null) {
     var showDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -569,6 +632,10 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
             text = {
                 Column {
                     place.address?.let { Text(it, color = colors.textSec, fontSize = 14.sp) }
+                    place.phoneNumber?.let {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(it, color = colors.textSec, fontSize = 14.sp)
+                    }
                     place.websiteUri?.let {
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(it, color = colors.primary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -582,6 +649,12 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                             showDialog = false
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                         }) { Text("Website", color = colors.scoreText) }
+                    }
+                    place.phoneNumber?.let { phone ->
+                        TextButton(onClick = {
+                            showDialog = false
+                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}")))
+                        }) { Text("Call", color = colors.scoreText) }
                     }
                     Button(
                         onClick = {
@@ -611,6 +684,7 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                     val shareText = buildString {
                         append(place.name)
                         place.address?.let { append("\n$it") }
+                        place.phoneNumber?.let { append("\n$it") }
                         if (place.latitude != null && place.longitude != null)
                             append("\nhttps://maps.google.com/?q=${place.latitude},${place.longitude}")
                         place.websiteUri?.let { append("\n$it") }
@@ -624,53 +698,30 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
         )
     }
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = colors.container.copy(alpha = 0.8f))) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { showDialog = true },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.container.copy(alpha = 0.8f))
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(place.name, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = colors.textPrime), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(colors.scoreBg).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text("Score: ${(place.confidenceScore * 100).toInt()}", color = colors.scoreText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(
+                        place.rating?.let { "\u2605 ${"%,.1f".format(it)}" } ?: "No rating",
+                        color = colors.scoreText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            place.rating?.let { rating ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("\u2605", color = Color(0xFFFBBF24), fontSize = 15.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("${"%,.1f".format(rating)}", color = colors.textPrime, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    place.userRatingsTotal?.let { total ->
-                        Text(" ($total reviews)", color = colors.textSec, fontSize = 12.sp)
-                    }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-            }
-            if (place.address != null || distanceInfo != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { showDialog = true }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (place.address != null) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = place.address, color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                    distanceInfo?.let { (label, meters) ->
-                        val distColor = if (requestedRadiusMeters > 0 && meters > requestedRadiusMeters) Color(0xFFF59E0B) else colors.primary
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(label, color = distColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("straight line", color = colors.textSec, fontSize = 9.sp)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
+            PlaceDetailLine("Rating", place.rating?.let { "${"%,.1f".format(it)}${place.userRatingsTotal?.let { total -> " ($total reviews)" } ?: ""}" } ?: "No rating", colors)
+            PlaceDetailLine("Address", place.address ?: "Address unavailable", colors, clickable = place.address != null) { showDialog = true }
+            PlaceDetailLine("Phone", place.phoneNumber ?: "Phone unavailable", colors)
+            val distanceText = distanceInfo?.let { (label, _) -> "$label straight line" } ?: "Distance unavailable"
+            PlaceDetailLine("Distance", distanceText, colors)
+            Spacer(modifier = Modifier.height(8.dp))
             Text(place.description, color = colors.textPrime.copy(alpha = 0.8f), fontSize = 15.sp, lineHeight = 22.sp)
             if (place.highlights.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
