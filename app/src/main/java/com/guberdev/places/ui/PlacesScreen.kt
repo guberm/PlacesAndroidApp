@@ -392,8 +392,14 @@ fun PlacesScreen(viewModel: PlacesViewModel = viewModel()) {
                     // Use the response's resolved origin (works for both GPS and typed address)
                     val originLat = state.response.latitude.takeIf { it != 0.0 } ?: userLat
                     val originLng = state.response.longitude.takeIf { it != 0.0 } ?: userLng
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-                        items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng, radius.toInt()) }
+                    if (state.response.recommendations.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("No ${selectedCategory.replace(Regex("(?<=[a-z])(?=[A-Z])"), " ").lowercase()} found within ${radius.toInt()}m.", color = colors.textSec)
+                        }
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                            items(state.response.recommendations) { place -> PlaceCard(place, colors, originLat, originLng, radius.toInt()) }
+                        }
                     }
                 }
                 is PlacesUiState.Error -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Error: ${state.message}", color = Color(0xFFEF4444)) }
@@ -647,9 +653,13 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = place.address ?: "", color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (place.address != null) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Location", tint = colors.primary, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = place.address, color = colors.textSec, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                     distanceInfo?.let { (label, meters) ->
                         val distColor = if (requestedRadiusMeters > 0 && meters > requestedRadiusMeters) Color(0xFFF59E0B) else colors.primary
                         Spacer(modifier = Modifier.width(8.dp))

@@ -136,19 +136,7 @@ class PlacesViewModel : ViewModel() {
                         keep
                     }.map { it.first }
 
-                    val minRequired = minOf(5, maxResults)
-                    if (within.size < minRequired && withDist.any { it.first.latitude != null }) {
-                        // Too few within radius — fall back to the closest maxResults, sorted by distance
-                        Log.w("PlacesVM", "Radius filter left only ${within.size}/${minRequired} required — falling back to closest $maxResults")
-                        val closest = withDist
-                            .filter { it.first.latitude != null }
-                            .sortedBy { it.second }
-                            .take(maxResults)
-                            .map { it.first }
-                        deduped.copy(recommendations = closest)
-                    } else {
-                        deduped.copy(recommendations = within)
-                    }
+                    deduped.copy(recommendations = within)
                 } else deduped
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")

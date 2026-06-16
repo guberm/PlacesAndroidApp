@@ -227,6 +227,7 @@ class LocalRecommendationEngine {
             val itemLat = coords.optDouble(1, Double.NaN)
             val name = props.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
             if (itemLat.isNaN() || itemLng.isNaN()) return@mapNotNull null
+            if (!photonMatchesCategory(props, category)) return@mapNotNull null
             val distance = FloatArray(1).also {
                 android.location.Location.distanceBetween(lat, lng, itemLat, itemLng, it)
             }[0]
@@ -250,6 +251,24 @@ class LocalRecommendationEngine {
         "Shopping" -> "shop"
         "Entertainment" -> "cinema theatre"
         else -> "restaurant cafe park museum hotel shop"
+    }
+
+    private fun photonMatchesCategory(props: JSONObject, category: String): Boolean {
+        val key = props.optString("osm_key")
+        val value = props.optString("osm_value")
+        return when (category) {
+            "Restaurant" -> key == "amenity" && value in setOf("restaurant", "fast_food", "food_court")
+            "Cafe" -> key == "amenity" && value == "cafe"
+            "TouristAttraction" -> key == "tourism" && value in setOf("attraction", "viewpoint", "theme_park", "zoo", "aquarium")
+            "Museum" -> key == "tourism" && value == "museum"
+            "Park" -> key == "leisure" && value in setOf("park", "garden")
+            "Bar" -> key == "amenity" && value in setOf("bar", "pub")
+            "Hotel" -> key == "tourism" && value in setOf("hotel", "hostel", "guest_house", "motel")
+            "Shopping" -> key == "shop"
+            "Entertainment" -> (key == "amenity" && value in setOf("cinema", "theatre", "arts_centre", "nightclub")) ||
+                (key == "leisure" && value in setOf("bowling_alley", "sports_centre", "escape_game"))
+            else -> key in setOf("amenity", "tourism", "leisure", "shop")
+        }
     }
 
     private fun placeFromPhoton(
