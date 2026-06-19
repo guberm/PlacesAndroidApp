@@ -6,6 +6,7 @@ import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
+import com.guberdev.places.data.model.normalizeWebsiteUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -16,6 +17,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+
+internal fun usesPlacesApi(category: String): Boolean = category != "All"
 
 class LocalRecommendationEngine {
 
@@ -84,6 +87,8 @@ class LocalRecommendationEngine {
         subcategory: String?,
         locationText: String?
     ): List<PlaceRecommendation> {
+        // ponytail: "All" already has broad OSM filters; add multi-query Google search only if OSM is not enough.
+        if (!usesPlacesApi(category)) return emptyList()
         val apiKey = BuildConfig.PLACES_API_KEY.takeIf { it.isNotBlank() } ?: return emptyList()
         val location = locationText?.takeIf { it.isNotBlank() } ?: "$lat,$lng"
         val query = "${placesApiQuery(category, subcategory)} $location".trim()
@@ -152,7 +157,7 @@ class LocalRecommendationEngine {
         val type = row.optString("place_type").takeIf { it.isNotBlank() } ?: category
         val address = row.optString("address").takeIf { it.isNotBlank() }
         val phone = row.optString("phone_number").takeIf { it.isNotBlank() }
-        val website = row.optString("website").takeIf { it.isNotBlank() }
+        val website = normalizeWebsiteUri(row.optString("website"))
         val rating = row.optDouble("rating", Double.NaN).takeIf { !it.isNaN() && it > 0.0 }
         val reviews = row.optInt("reviews_count", -1).takeIf { it >= 0 }
         val open = row.optString("opens_at").takeIf { it.isNotBlank() && it != "..." }
@@ -300,8 +305,8 @@ class LocalRecommendationEngine {
         val type = listOf("amenity", "tourism", "leisure", "shop").firstNotNullOfOrNull {
             tags.optString(it).takeIf { value -> value.isNotBlank() }
         }?.replace('_', ' ') ?: category
-        val website = tags.optString("website").takeIf { it.isNotBlank() }
-            ?: tags.optString("contact:website").takeIf { it.isNotBlank() }
+        val website = normalizeWebsiteUri(tags.optString("website"))
+            ?: normalizeWebsiteUri(tags.optString("contact:website"))
         val phone = tags.optString("phone").takeIf { it.isNotBlank() }
             ?: tags.optString("contact:phone").takeIf { it.isNotBlank() }
         val address = osmAddress(tags)

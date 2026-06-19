@@ -1,5 +1,14 @@
 package com.guberdev.places.data.model
 
+internal fun normalizeWebsiteUri(raw: String?): String? {
+    val trimmed = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    if (trimmed.equals("null", ignoreCase = true) || trimmed.equals("none found", ignoreCase = true)) return null
+    if (":" in trimmed && "://" !in trimmed) return null
+    val url = if ("://" in trimmed) trimmed else "https://$trimmed"
+    val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return null
+    return url.takeIf { uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() }
+}
+
 data class RecommendationRequest(
     val latitude: Double? = null,
     val longitude: Double? = null,

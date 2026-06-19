@@ -43,6 +43,7 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.PlaceRecommendation
+import com.guberdev.places.data.model.normalizeWebsiteUri
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -613,6 +614,7 @@ fun PlaceDetailLine(label: String, value: String, colors: ThemeColors, clickable
 fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? = null, userLng: Double? = null) {
     var showDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val website = remember(place.websiteUri) { normalizeWebsiteUri(place.websiteUri) }
 
     val distanceInfo = remember(userLat, userLng, place.latitude, place.longitude) {
         if (userLat != null && userLng != null && place.latitude != null && place.longitude != null) {
@@ -636,7 +638,7 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(it, color = colors.textSec, fontSize = 14.sp)
                     }
-                    place.websiteUri?.let {
+                    website?.let {
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(it, color = colors.primary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -644,10 +646,14 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
             },
             confirmButton = {
                 Row {
-                    place.websiteUri?.let { url ->
+                    website?.let { url ->
                         TextButton(onClick = {
                             showDialog = false
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            }.onFailure {
+                                Log.w("PlacesUI", "Cannot open website '$url': ${it.message}")
+                            }
                         }) { Text("Website", color = colors.scoreText) }
                     }
                     place.phoneNumber?.let { phone ->
@@ -687,7 +693,7 @@ fun PlaceCard(place: PlaceRecommendation, colors: ThemeColors, userLat: Double? 
                         place.phoneNumber?.let { append("\n$it") }
                         if (place.latitude != null && place.longitude != null)
                             append("\nhttps://maps.google.com/?q=${place.latitude},${place.longitude}")
-                        place.websiteUri?.let { append("\n$it") }
+                        website?.let { append("\n$it") }
                     }
                     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
