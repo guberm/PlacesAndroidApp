@@ -18,7 +18,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-internal fun usesPlacesApi(category: String): Boolean = category != "All"
+internal fun usesPlacesApi(category: String): Boolean = category.isNotBlank()
 
 class LocalRecommendationEngine {
 
@@ -87,10 +87,26 @@ class LocalRecommendationEngine {
         subcategory: String?,
         locationText: String?
     ): List<PlaceRecommendation> {
-        // ponytail: "All" already has broad OSM filters; add multi-query Google search only if OSM is not enough.
         if (!usesPlacesApi(category)) return emptyList()
         val apiKey = BuildConfig.PLACES_API_KEY.takeIf { it.isNotBlank() } ?: return emptyList()
         val location = locationText?.takeIf { it.isNotBlank() } ?: "$lat,$lng"
+        val categories = if (category == "All") allPlacesCategories() else listOf(category)
+        val perQueryMax = if (category == "All") 4 else maxResults
+        return categories
+            .flatMap { searchPlacesApiCategory(apiKey, location, perQueryMax, it, subcategory.takeIf { category != "All" }) }
+            .distinctBy { it.name.trim().lowercase() to it.address.orEmpty().trim().lowercase() }
+            .take(maxResults)
+    }
+
+    private fun allPlacesCategories() = listOf("Restaurant", "Cafe", "TouristAttraction", "Park", "Shopping", "Entertainment", "Hotel")
+
+    private fun searchPlacesApiCategory(
+        apiKey: String,
+        location: String,
+        maxResults: Int,
+        category: String,
+        subcategory: String?
+    ): List<PlaceRecommendation> {
         val query = "${placesApiQuery(category, subcategory)} $location".trim()
         val payload = JSONObject()
             .put("query", query)
@@ -269,8 +285,7 @@ class LocalRecommendationEngine {
         else -> listOf(
             """["amenity"~"restaurant|cafe|bar|pub|cinema|theatre|arts_centre"]""",
             """["tourism"~"attraction|museum|viewpoint|hotel|hostel|guest_house|motel"]""",
-            """["leisure"~"park|garden|sports_centre"]""",
-            """["shop"]"""
+            """["leisure"~"park|garden|sports_centre"]"""
         )
     }
 

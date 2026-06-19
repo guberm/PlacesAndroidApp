@@ -9,6 +9,8 @@ internal fun normalizeWebsiteUri(raw: String?): String? {
     return url.takeIf { uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank() }
 }
 
+internal fun hasDisplayAddress(place: PlaceRecommendation): Boolean = !place.address.isNullOrBlank()
+
 data class RecommendationRequest(
     val latitude: Double? = null,
     val longitude: Double? = null,

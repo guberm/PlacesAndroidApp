@@ -21,8 +21,8 @@ android {
         applicationId = "com.guberdev.places"
         minSdk = 24
         targetSdk = 34
-        versionCode = 31
-        versionName = "1.30"
+        versionCode = 32
+        versionName = "1.31"
         val placesApiKey = localProperties.getProperty("placesApiKey")
             ?: System.getenv("PLACES_API_KEY")
             ?: ""

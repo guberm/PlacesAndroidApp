@@ -6,6 +6,7 @@ import com.guberdev.places.data.LocalRecommendationEngine
 import com.guberdev.places.data.model.AddressSuggestion
 import com.guberdev.places.data.model.RecommendationRequest
 import com.guberdev.places.data.model.RecommendationResponse
+import com.guberdev.places.data.model.hasDisplayAddress
 import android.util.Log
 import com.guberdev.places.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -121,14 +122,20 @@ class PlacesViewModel : ViewModel() {
 
                 // Geocode place addresses first so Google scraper results can show distance.
                 val geocoded = geocodeAddresses(deduped)
+                val withAddresses = geocoded.copy(
+                    recommendations = geocoded.recommendations.filter(::hasDisplayAddress).also { visible ->
+                        val removed = geocoded.recommendations.size - visible.size
+                        if (removed > 0) Log.d("PlacesVM", "Address filter removed $removed place(s)")
+                    }
+                )
 
                 // Hard-filter: remove places whose coordinates fall outside the requested radius.
                 val filtered = if (radiusMeters > 0) {
                     val distResults = FloatArray(1)
-                    val withDist = geocoded.recommendations.map { place ->
+                    val withDist = withAddresses.recommendations.map { place ->
                         if (place.latitude != null && place.longitude != null) {
                             android.location.Location.distanceBetween(
-                                geocoded.latitude, geocoded.longitude,
+                                withAddresses.latitude, withAddresses.longitude,
                                 place.latitude, place.longitude,
                                 distResults
                             )
@@ -141,8 +148,8 @@ class PlacesViewModel : ViewModel() {
                         keep
                     }.map { it.first }
 
-                    geocoded.copy(recommendations = within)
-                } else geocoded
+                    withAddresses.copy(recommendations = within)
+                } else withAddresses
 
                 Log.d("PlacesVM", "searchPlaces DONE in ${System.currentTimeMillis() - startTime}ms — ${filtered.recommendations.size} results after radius filter")
 
